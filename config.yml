@@ -8,14 +8,53 @@ build_dir: ./build
 project_root: ${PROJECT_ROOT}
 
 # Application Configuration (paths are derived by convention)
-# - Config: src/applications/{app}/config.yml  
+# - Config: src/applications/{app}/config.yml
 # - Registry: src/applications/{app}/registry.py
 
 applications:
   - als_assistant
   # - wind_turbine
   # - hello_world_weather
-  
+
+# ============================================================
+# MODEL CONFIGURATION OVERRIDES - Use Stanford AI Playground
+# ============================================================
+# Override framework model defaults to use Stanford AI Playground
+# Available Stanford models: claude-3-7-sonnet, gpt-4o, gpt-4.omini,
+# deepseek-r1, gemini-2.0-flash-001, o3-mini
+
+framework:
+  models:
+    orchestrator:
+      provider: stanford
+      model_id: claude-3-7-sonnet  # Replaces cborg's anthropic/claude-sonnet
+    response:
+      provider: stanford
+      model_id: gpt-4o  # Replaces cborg's google/gemini-flash
+      max_tokens: 5000
+    classifier:
+      provider: stanford
+      model_id: gpt-4.omini  # Replaces ollama's mistral:7b
+    approval:
+      provider: stanford
+      model_id: gpt-4.omini  # Replaces ollama's mistral:7b
+    task_extraction:
+      provider: stanford
+      model_id: gpt-4o  # Replaces cborg's google/gemini-flash
+      max_tokens: 1024
+    memory:
+      provider: stanford
+      model_id: gpt-4o  # Replaces cborg's google/gemini-flash
+      max_tokens: 256
+    python_code_generator:
+      provider: stanford
+      model_id: claude-3-7-sonnet  # Replaces cborg's anthropic/claude-haiku
+      max_tokens: 4096
+    time_parsing:
+      provider: stanford
+      model_id: gpt-4.omini  # Replaces ollama's mistral:7b
+      max_tokens: 512
+
 # ============================================================
 # OPERATOR CONTROLS - System-wide governance and safety policies
 # ============================================================
@@ -27,14 +66,14 @@ approval:
     python_execution:
       enabled: true
       mode: "epics_writes"      # "disabled" | "epics_writes" | "all_code"
-    memory: 
+    memory:
       enabled: true          # Simple on/off for memory operations
 
 # Execution Control - System-wide governance limits and safety controls
 execution_control:
   epics:
     writes_enabled: false            # Master switch: can EPICS writes ever happen?
-  
+
   # Execution safety limits and control flow
   limits:
     max_reclassifications: 1         # Maximum times a task can be reclassified
@@ -81,31 +120,31 @@ file_paths:
 deployed_services:
   # Framework services (essential for framework operation, see also src/framework/config.yml)
   - framework.jupyter          # Python execution environment with EPICS support
-  - framework.open_webui       # Primary user interface frontend  
+  - framework.open_webui       # Primary user interface frontend
   - framework.pipelines        # OpenWebUI pipeline interface server
-  
+
   # ALS Assistant application services (domain-specific) - MOVED HERE FROM src/applications/als_assistant/config.yml as CONVENIENCE
-  - applications.als_assistant.mongo        # Primary database for ALS Assistant PV data
-  - applications.als_assistant.pv_finder    # PV discovery for EPICS - standalone MCP server
-  - applications.als_assistant.langfuse     # Observability and tracing infrastructure
-  
+  # - applications.als_assistant.mongo        # Primary database for ALS Assistant PV data
+  # - applications.als_assistant.pv_finder    # PV discovery for EPICS - standalone MCP server
+  # - applications.als_assistant.langfuse     # Observability and tracing infrastructure
+
 
 # Development Configuration
 development:
   # If true, exceptions will be raised directly instead of being wrapped in ExecutionError
   # This provides full stack traces for debugging but should be false in production
   raise_raw_errors: false
-  
+
   # Prompt debugging configuration
   prompts:
     # If true, prints all system prompts to console when they are built
     # Useful for debugging prompt generation and seeing what's being sent to LLMs
     show_all: false
-    
+
     # If true, saves all system prompts to files for inspection
     # Prompts are saved to the prompts_dir specified in agent configuration
     print_all: true
-    
+
     # If true, only keeps the latest version of each prompt file
     # If false, saves prompts with timestamps to track changes over time
     latest_only: true
@@ -125,6 +164,10 @@ api:
       api_key: ${CBORG_API_KEY}
       base_url: https://api.cborg.lbl.gov/v1 #https://api-local.cborg.lbl.gov/v1
       timeout: 30
+    stanford:
+      api_key: ${STANFORD_API_KEY}
+      base_url: https://aiapi-prod.stanford.edu/v1
+      timeout: 30
     openai:
       api_key: ${OPENAI_API_KEY}
       base_url: https://api.openai.com/v1
@@ -137,7 +180,9 @@ api:
     ollama:
       api_key: ollama  # Default for ollama
       # For framework use
-      base_url: http://doudna:11434 # http://host.containers.internal:11434 <_> http://localhost:11434  <_> http://doudna:11434
+      # base_url: http://doudna:11434
+      base_url: http://host.containers.internal:11434 # <_> http://localhost:11434  <_> http://doudna:11434
       # For container services
-      host: doudna # host.containers.internal <_> localhost <_> doudna
+      # host: doudna # host.containers.internal <_> localhost <_> doudna
+      host: host.containers.internal
       port: 11434
