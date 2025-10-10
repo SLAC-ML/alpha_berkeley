@@ -296,12 +296,14 @@ def get_model(
     
     Provider-specific behavior:
     - **Anthropic**: Requires API key and model ID, supports HTTP proxy
-    - **Google**: Requires API key and model ID, supports HTTP proxy  
+    - **Google**: Requires API key and model ID, supports HTTP proxy
     - **OpenAI**: Requires API key and model ID, supports HTTP proxy and custom base URLs
     - **Ollama**: Requires model ID and base URL, no API key needed, no proxy support
     - **CBORG**: Requires API key, model ID, and base URL, supports HTTP proxy
+    - **Stanford**: Requires API key, model ID, and base URL, supports HTTP proxy
     
-    :param provider: AI provider name ('anthropic', 'google', 'openai', 'ollama', 'cborg')
+    :param provider: AI provider name ('anthropic', 'google', 'openai', 'ollama',
+        'cborg', 'stanford')
     :type provider: str, optional
     :param model_config: Configuration dictionary with provider, model_id, and other settings
     :type model_config: dict, optional
@@ -388,10 +390,14 @@ def get_model(
         "openai":    {"model_id": True, "api_key": True,  "base_url": False, "use_proxy": True},
         "ollama":    {"model_id": True, "api_key": False, "base_url": True,  "use_proxy": False},
         "cborg":     {"model_id": True, "api_key": True,  "base_url": True,  "use_proxy": True},
+        "stanford":  {"model_id": True, "api_key": True,  "base_url": True,  "use_proxy": True},
     }
     
     if provider not in provider_requirements:
-        raise ValueError(f"Invalid provider: {provider}. Must be 'anthropic', 'cborg', 'google', 'ollama', or 'openai'.")
+        raise ValueError(
+            f"Invalid provider: {provider}. Must be one of: "
+            f"'anthropic', 'cborg', 'google', 'ollama', 'openai', or 'stanford'."
+        )
     
     requirements = provider_requirements[provider]
     
@@ -463,6 +469,15 @@ def get_model(
         )
 
     elif provider == "cborg":
+        return _create_openai_compatible_model(
+            model_id=model_id,
+            api_key=api_key,
+            base_url=base_url,
+            timeout_arg_from_get_model=timeout,
+            shared_http_client=async_http_client
+        )
+
+    elif provider == "stanford":
         return _create_openai_compatible_model(
             model_id=model_id,
             api_key=api_key,
