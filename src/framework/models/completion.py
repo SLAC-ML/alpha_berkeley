@@ -374,10 +374,11 @@ def get_chat_completion(
         "openai":    {"model_id": True, "api_key": True,  "base_url": True,  "use_proxy": True},
         "ollama":    {"model_id": True, "api_key": False, "base_url": True,  "use_proxy": False},
         "cborg":     {"model_id": True, "api_key": True,  "base_url": True,  "use_proxy": True},
+        "stanford":  {"model_id": True, "api_key": True,  "base_url": True,  "use_proxy": True},
     }
-    
+
     if provider not in provider_requirements:
-        raise ValueError(f"Invalid provider: {provider}. Must be 'anthropic', 'cborg', 'google', 'ollama', or 'openai'.")
+        raise ValueError(f"Invalid provider: {provider}. Must be 'anthropic', 'cborg', 'google', 'ollama', 'openai', or 'stanford'.")
     
     requirements = provider_requirements[provider]
     
@@ -618,4 +619,38 @@ def get_chat_completion(
             )
             if not response.choices:
                 raise ValueError("CBORG API returned empty choices list")
-            return response.choices[0].message.content 
+            return response.choices[0].message.content
+
+    # ----- STANFORD ------
+    elif provider == "stanford":
+        if enable_thinking or budget_tokens is not None:
+            logging.warning("enable_thinking and budget_tokens are not used for Stanford provider.")
+
+        client = openai.OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            http_client=http_client,
+        )
+
+        if output_model is not None:
+            # Use structured outputs with Pydantic model (same as OpenAI implementation)
+            response = client.beta.chat.completions.parse(
+                model=model_id,
+                messages=[{"role": "user", "content": message}],
+                max_tokens=max_tokens,
+                response_format=output_model,
+            )
+            if not response.choices:
+                raise ValueError("Stanford API returned empty choices list")
+            result = response.choices[0].message.parsed
+            return _handle_output_conversion(result, is_typed_dict_output)
+        else:
+            # Regular text completion
+            response = client.chat.completions.create(
+                model=model_id,
+                messages=[{"role": "user", "content": message}],
+                max_tokens=max_tokens,
+            )
+            if not response.choices:
+                raise ValueError("Stanford API returned empty choices list")
+            return response.choices[0].message.content

@@ -152,8 +152,29 @@ def get_model(
             shared_http_client=async_http_client
         )
 
+    elif provider.lower() == "stanford":
+        current_model_id = model_id if model_id is not None else os.getenv("MODEL_ID")
+        if not current_model_id:
+            raise ValueError("Model ID for Stanford not provided directly or via MODEL_ID environment variable.")
+        current_api_key = api_key if api_key is not None else os.getenv("STANFORD_API_KEY")
+        current_base_url = base_url if base_url is not None else os.getenv("STANFORD_API_URL", "https://aiapi-prod.stanford.edu/v1")
+
+        if not current_api_key:
+            raise ValueError("No API key provided for Stanford and STANFORD_API_KEY not set.")
+        if not current_base_url:
+            raise ValueError("No base URL provided for Stanford and STANFORD_API_URL not set.")
+
+        # Stanford uses OpenAI-compatible API, so reuse the helper
+        return _create_openai_compatible_model(
+            model_id=current_model_id,
+            api_key=current_api_key,
+            base_url=current_base_url,
+            timeout_arg_from_get_model=timeout,
+            shared_http_client=async_http_client
+        )
+
     else:
-        raise ValueError(f"Invalid provider: {provider}. Must be 'anthropic', 'google', 'openai', or 'cborg'.")
+        raise ValueError(f"Invalid provider: {provider}. Must be 'anthropic', 'google', 'openai', 'cborg', or 'stanford'.")
 
 def clean_matlab_code(content: str) -> tuple[str, str]:
     """
