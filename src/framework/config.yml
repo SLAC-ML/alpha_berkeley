@@ -86,8 +86,9 @@ framework:
     execution_method: "local"  # "container" | "local" - How to execute Python code
     
     # Simple Python environment configuration for local execution
-    python_env_path: ${LOCAL_PYTHON_VENV}  # Path to Python executable with required dependencies
+    python_env_path: ${LOCAL_PYTHON_VENV}  # Path to Python EXECUTABLE (not the venv directory!)
                                            # Example: "/path/to/venv/bin/python" or "~/jupyter-env/bin/python"
+                                           # WRONG: "/path/to/venv" (this is a directory, not executable)
                                            # If null, uses current system Python (may miss dependencies)
 
     # EPICS Infrastructure - Technical connection details

@@ -229,29 +229,40 @@ class LocalCodeExecutor:
     def _detect_python_environment(self) -> str:
         """Detect appropriate Python environment with container-aware logic"""
         import sys
-        
+
         # First: Check for container-specific Python environment override
         container_python_env = os.environ.get('CONTAINER_PYTHON_ENV')
         if container_python_env:
             if Path(container_python_env).exists():
+                # Validate it's an executable, not a directory
+                if Path(container_python_env).is_dir():
+                    logger.error(f"CONTAINER_PYTHON_ENV points to a directory, not a Python executable: {container_python_env}")
+                    logger.error(f"Expected: {container_python_env}/bin/python")
+                    raise ValueError(f"CONTAINER_PYTHON_ENV must point to Python executable, not directory: {container_python_env}")
                 logger.info(f"LOCAL EXECUTION: Using container Python environment: {container_python_env}")
                 return container_python_env
             else:
                 logger.warning(f"Container Python environment not found: {container_python_env}")
-        
+
         # Second: Try configured Python environment from config
         framework_config = self.configurable.get('framework', {})
         execution_config = framework_config.get('execution', {})
         configured_python_path = execution_config.get('python_env_path')
-        
+
         if configured_python_path:
             python_path = os.path.expanduser(configured_python_path)
             if Path(python_path).exists():
+                # Validate it's an executable, not a directory
+                if Path(python_path).is_dir():
+                    logger.error(f"Configured python_env_path points to a directory, not a Python executable: {python_path}")
+                    logger.error(f"Expected path to executable like: {python_path}/bin/python")
+                    logger.error(f"Please update your .env file: LOCAL_PYTHON_VENV should point to the Python executable")
+                    raise ValueError(f"python_env_path must point to Python executable, not directory: {python_path}")
                 logger.info(f"LOCAL EXECUTION: Using configured Python environment: {python_path}")
                 return python_path
             else:
                 logger.warning(f"Configured Python environment not found: {python_path}")
-        
+
         # Final fallback: Use current Python executable
         logger.warning("LOCAL EXECUTION: Using current Python executable as fallback")
         return sys.executable
