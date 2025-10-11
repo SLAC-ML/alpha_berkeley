@@ -9,7 +9,9 @@ services:
     ports:
       - {{framework.services.pipelines.port_host}}:{{framework.services.pipelines.port_container}} # Expose pipeline port
     volumes:
-      - ./framework/pipelines:/pipelines 
+      # Use absolute path to avoid docker-compose multi-file path resolution issues
+      # When using multiple -f flags, relative paths are resolved inconsistently
+      - {{build_dir}}/services/framework/pipelines:/pipelines
       - {{project_root}}/{{file_paths.agent_data_dir}}:/app/{{file_paths.agent_data_dir}}
     environment:
       # Tell pipelines where to find the scripts within the container

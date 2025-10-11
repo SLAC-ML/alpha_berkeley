@@ -1,7 +1,8 @@
 # Import framework configuration
 import: src/framework/config.yml
 
-build_dir: ./build
+# Build directory (use absolute path to avoid compose path resolution issues)
+build_dir: ${PROJECT_ROOT}/build
 
 # Root directory (absolute path)
 # If you operate on local and remote machines, recommended to use environment variable
@@ -12,9 +13,9 @@ project_root: ${PROJECT_ROOT}
 # - Registry: src/applications/{app}/registry.py
 
 applications:
-  - als_assistant
+  # - als_assistant
   # - wind_turbine
-  # - hello_world_weather
+  - hello_world_weather
 
 # ============================================================
 # MODEL CONFIGURATION OVERRIDES - Use Stanford AI Playground

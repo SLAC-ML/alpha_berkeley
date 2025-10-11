@@ -3,16 +3,17 @@ services:
   jupyter-read:
     container_name: jupyter-read
     build:
-      context: ./framework/jupyter
+      context: {{build_dir}}/services/framework/jupyter
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "{{framework.services.jupyter.containers.read.port_host}}:{{framework.services.jupyter.containers.read.port_container}}"
     volumes:
-      - ./framework/jupyter:/jupyter
+      # Use absolute paths to avoid docker-compose multi-file path resolution issues
+      - {{build_dir}}/services/framework/jupyter:/jupyter
       - {{project_root}}/{{file_paths.agent_data_dir}}/{{file_paths.executed_python_scripts_dir}}:/home/jovyan/work/executed_scripts/
       # Mount safe kernels only
-      - ./framework/jupyter/python3-epics-readonly:/opt/conda/share/jupyter/kernels/python3-epics-readonly
+      - {{build_dir}}/services/framework/jupyter/python3-epics-readonly:/opt/conda/share/jupyter/kernels/python3-epics-readonly
     environment:
       - NOTEBOOK_DIR=/home/jovyan/work
       - JUPYTER_ENABLE_LAB=yes
@@ -32,17 +33,18 @@ services:
   jupyter-write:
     container_name: jupyter-write
     build:
-      context: ./framework/jupyter
+      context: {{build_dir}}/services/framework/jupyter
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
       - "{{framework.services.jupyter.containers.write.port_host}}:{{framework.services.jupyter.containers.write.port_container}}"
     volumes:
-      - ./framework/jupyter:/jupyter
+      # Use absolute paths to avoid docker-compose multi-file path resolution issues
+      - {{build_dir}}/services/framework/jupyter:/jupyter
       - {{project_root}}/{{file_paths.agent_data_dir}}/{{file_paths.executed_python_scripts_dir}}:/home/jovyan/work/executed_scripts/
       # Mount all kernels (full flexibility in write container)
-      - ./framework/jupyter/python3-epics-readonly:/opt/conda/share/jupyter/kernels/python3-epics-readonly
-      - ./framework/jupyter/python3-epics-write:/opt/conda/share/jupyter/kernels/python3-epics-write
+      - {{build_dir}}/services/framework/jupyter/python3-epics-readonly:/opt/conda/share/jupyter/kernels/python3-epics-readonly
+      - {{build_dir}}/services/framework/jupyter/python3-epics-write:/opt/conda/share/jupyter/kernels/python3-epics-write
     environment:
       - NOTEBOOK_DIR=/home/jovyan/work
       - JUPYTER_ENABLE_LAB=yes

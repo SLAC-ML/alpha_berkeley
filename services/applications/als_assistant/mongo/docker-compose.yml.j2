@@ -27,11 +27,12 @@ services:
   db-init:
     container_name: db-init
     build:
-      context: ./applications/als_assistant/mongo
+      context: {{build_dir}}/services/applications/als_assistant/mongo
       dockerfile: Dockerfile.db-init
     working_dir: /app
     volumes:
-      - ./applications/als_assistant/mongo/repo_src/:/repo_src
+      # Use absolute path to avoid docker-compose multi-file path resolution issues
+      - {{build_dir}}/services/applications/als_assistant/mongo/repo_src/:/repo_src
     environment:
       - AO_DB_HOST={{applications.als_assistant.services.mongo.name}}
       - AO_DB_PORT={{applications.als_assistant.services.mongo.port_host}}

@@ -5,7 +5,7 @@ services:
   open-webui:
     container_name: open-webui
     build:
-      context: ./framework/open-webui
+      context: {{build_dir}}/services/framework/open-webui
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
@@ -20,7 +20,8 @@ services:
     volumes:
       - open-webui:/app/backend/data
       - {{project_root}}/{{file_paths.agent_data_dir}}:/app/backend/open_webui/static/agent_data:ro
-      - ./framework/open-webui/custom.css:/app/backend/static/custom.css
+      # Use absolute path to avoid docker-compose multi-file path resolution issues
+      - {{build_dir}}/services/framework/open-webui/custom.css:/app/backend/static/custom.css
       - {{project_root}}/config.yml:/app/config.yml:ro
       - {{project_root}}/src:/app/src:ro
     networks:
