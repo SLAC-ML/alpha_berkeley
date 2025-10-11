@@ -297,3 +297,83 @@ class CurrentWeatherContext(CapabilityContext):
         return {
             "summary": f"Weather in {self.location} on {self.timestamp.strftime('%Y-%m-%d')}: {self.temperature}°C, {self.conditions}"
         }
+
+
+class ConversationalContext(CapabilityContext):
+    """Structured context for conversational response data.
+
+    Provides a type-safe container for general conversational interactions including
+    chat history queries, greetings, meta questions, and general conversation. This
+    context class implements the framework's CapabilityContext interface with automatic
+    Pydantic validation and integration with the state management system.
+
+    The context serves as the data exchange format for conversational capabilities
+    throughout the framework, enabling structured data flow between conversational
+    analysis and response generation systems.
+
+    Data Structure:
+        The context contains conversational interaction fields:
+
+        - **response_text**: The LLM-generated response to the conversational query
+        - **query_type**: Classification of the query type for analytics and routing
+
+    Framework Integration:
+        - **Context Type**: CONVERSATIONAL_RESPONSE (used for capability dependencies)
+        - **Context Category**: CONVERSATIONAL (indicates conversational data characteristics)
+        - **Serialization**: Automatic JSON conversion via Pydantic
+        - **Validation**: Type checking and constraint enforcement
+        - **State Management**: Compatible with StateManager storage operations
+
+    :param response_text: The LLM-generated response to the conversational query
+    :type response_text: str
+    :param query_type: Type of conversational query (chat_history, greeting, meta, general)
+    :type query_type: str
+
+    :raises ValidationError: If field types don't match expected types
+    :raises ValueError: If required fields are missing or invalid
+    """
+
+    CONTEXT_TYPE: ClassVar[str] = "CONVERSATIONAL_RESPONSE"
+    CONTEXT_CATEGORY: ClassVar[str] = "CONVERSATIONAL"
+
+    # Conversational data
+    response_text: str = Field(description="LLM-generated response to the conversational query")
+    query_type: str = Field(description="Type of query: chat_history, greeting, meta, general")
+
+    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """Provide structured access information for LLM consumption and templating.
+
+        Generates comprehensive access details that enable LLMs and templating systems
+        to understand and utilize the conversational context data effectively.
+
+        :param key_name: Optional context key name for access pattern generation
+        :type key_name: str, optional
+        :return: Dictionary containing access details with response and query type
+        :rtype: Dict[str, Any]
+        """
+        key_ref = key_name if key_name else "key_name"
+
+        return {
+            "response": self.response_text,
+            "type": self.query_type,
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.response_text",
+            "example_usage": f"The conversational response: {{context.{self.CONTEXT_TYPE}.{key_ref}.response_text}}",
+            "available_fields": ["response_text", "query_type"]
+        }
+
+    def get_summary(self, key: str) -> dict:
+        """Generate summary of conversational context data.
+
+        Creates a concise summary of the conversational context suitable for display
+        in user interfaces, logging, debugging, and documentation.
+
+        :param key: Context key identifier used for this conversational data instance
+        :type key: str
+        :return: Dictionary containing summary with conversational response preview
+        :rtype: dict
+        """
+        # Truncate long responses for summary
+        response_preview = self.response_text[:100] + "..." if len(self.response_text) > 100 else self.response_text
+        return {
+            "summary": f"Conversational response ({self.query_type}): {response_preview}"
+        }

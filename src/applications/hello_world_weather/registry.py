@@ -152,18 +152,31 @@ class HelloWorldWeatherRegistryProvider(RegistryConfigProvider):
                 CapabilityRegistration(
                     name="current_weather",
                     module_path="applications.hello_world_weather.capabilities.current_weather",
-                    class_name="CurrentWeatherCapability", 
+                    class_name="CurrentWeatherCapability",
                     description="Get current weather conditions for a location",
                     provides=["CURRENT_WEATHER"],
                     requires=[]
+                ),
+                CapabilityRegistration(
+                    name="conversational",
+                    module_path="applications.hello_world_weather.capabilities.conversational",
+                    class_name="ConversationalCapability",
+                    description="Handle general conversation, chat history queries, greetings, and meta questions",
+                    provides=["CONVERSATIONAL_RESPONSE"],
+                    requires=[]
                 )
             ],
-            
+
             context_classes=[
                 ContextClassRegistration(
                     context_type="CURRENT_WEATHER",
-                    module_path="applications.hello_world_weather.context_classes", 
+                    module_path="applications.hello_world_weather.context_classes",
                     class_name="CurrentWeatherContext"
+                ),
+                ContextClassRegistration(
+                    context_type="CONVERSATIONAL_RESPONSE",
+                    module_path="applications.hello_world_weather.context_classes",
+                    class_name="ConversationalContext"
                 )
             ]
         )
