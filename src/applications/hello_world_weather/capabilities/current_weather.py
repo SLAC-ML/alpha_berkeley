@@ -240,16 +240,25 @@ class CurrentWeatherCapability(BaseCapability):
         
         try:
             streamer.status("Extracting location from query...")
-            
-            query = StateManager.get_current_task(state).lower()
-            
+
+            # IMPORTANT: Use step-specific task objective, not global task
+            # This allows multiple weather calls in one plan (e.g., "weather in NYC and SF")
+            # to each extract their specific location from their individual step objective
+            step_objective = step.get("task_objective", "")
+            if not step_objective:
+                # Fallback to global task if no step objective available
+                step_objective = StateManager.get_current_task(state)
+
+            query = step_objective.lower()
+
             # Simple location detection
             location = "San Francisco"  # default
             if "new york" in query or "nyc" in query:
                 location = "New York"
             elif "prague" in query or "praha" in query:
                 location = "Prague"
-            
+
+            logger.info(f"Extracted location '{location}' from step objective: {step_objective}")
             streamer.status(f"Getting weather for {location}...")
             weather = weather_api.get_current_weather(location)
             

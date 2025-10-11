@@ -229,7 +229,11 @@ def _gather_information(state: AgentState) -> ResponseContext:
     # Extract context data and determine response mode
     context_manager = ContextManager(state)
     current_step = StateManager.get_current_step(state)
-    relevant_context = context_manager.get_summaries(current_step)
+
+    # IMPORTANT: For respond capability, always get ALL available contexts
+    # This ensures multi-result queries (e.g., "weather in NYC and SF") include all results
+    # Even if the orchestrator doesn't properly specify inputs in the respond step
+    relevant_context = context_manager.get_summaries(None)  # None = get ALL contexts
     
     # Determine response mode and prepare appropriate data
     response_mode = _determine_response_mode(state, current_step)
