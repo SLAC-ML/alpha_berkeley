@@ -94,7 +94,7 @@ tensorboard/
 
 # Temporary files
 tmp/
-temp/ 
+temp/
 
 venv*
 
@@ -112,7 +112,7 @@ valves.json
 *.code-workspace
 
 # Agent data directories
-_agent_data/*
+**/_agent_data/*
 RELEASE_NOTES_v*.md
 
 # Auto-generated documentation
