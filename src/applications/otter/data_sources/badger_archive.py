@@ -6,10 +6,11 @@ Supports environment-based organization and nested date structure.
 """
 
 import os
+import json
 import yaml
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -78,12 +79,19 @@ class BadgerArchiveDataSource:
     full evaluation data (which can be very large).
     """
 
-    def __init__(self, archive_root: str):
+    def __init__(
+        self,
+        archive_root: str,
+        use_cache: bool = True,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None
+    ):
         """
         Initialize data source with archive root path.
 
         Args:
             archive_root: Path to archive root directory
+            use_cache: Whether to use cached index (default: True)
+            progress_callback: Optional callback(current, total, path) for index building progress
 
         Raises:
             FileNotFoundError: If archive root doesn't exist
@@ -101,6 +109,17 @@ class BadgerArchiveDataSource:
             )
 
         logger.info(f"Initialized Badger archive data source: {self.archive_root}")
+
+        # Load or build index
+        self.index: Optional[Dict[str, Any]] = None
+        if use_cache:
+            self.index = self._load_cache()
+
+        if self.index is None:
+            logger.info("Building fresh index (this may take a few minutes)...")
+            self.index = self._build_index(progress_callback=progress_callback)
+            if use_cache:
+                self._save_cache(self.index)
 
     def health_check(self) -> bool:
         """
@@ -129,6 +148,115 @@ class BadgerArchiveDataSource:
             logger.error(f"Badger archive health check failed: {e}")
             return False
 
+    def _get_cache_path(self) -> Path:
+        """Get path to cache file."""
+        return self.archive_root / ".otter_index.json"
+
+    def _save_cache(self, index: Dict[str, Any]) -> None:
+        """Save index to cache file."""
+        cache_path = self._get_cache_path()
+        try:
+            with open(cache_path, 'w') as f:
+                json.dump(index, f, indent=2)
+            logger.info(f"Saved index cache to {cache_path} ({index['total_runs']} runs)")
+        except Exception as e:
+            logger.error(f"Failed to save cache: {e}")
+
+    def _load_cache(self) -> Optional[Dict[str, Any]]:
+        """Load index from cache file."""
+        cache_path = self._get_cache_path()
+        try:
+            with open(cache_path, 'r') as f:
+                index = json.load(f)
+            logger.info(f"Loaded index cache from {cache_path} ({index.get('total_runs', 0)} runs)")
+            return index
+        except FileNotFoundError:
+            logger.info("No cache file found")
+            return None
+        except Exception as e:
+            logger.error(f"Failed to load cache: {e}")
+            return None
+
+    def _build_index(self, progress_callback: Optional[Callable[[int, int, str], None]] = None) -> Dict[str, Any]:
+        """
+        Build complete index with full metadata for all runs.
+
+        Args:
+            progress_callback: Optional callback(current, total, path) for progress updates
+
+        Returns:
+            Index dict with metadata for all runs
+        """
+        index = {
+            "version": "1.0",
+            "created_at": datetime.now().isoformat(),
+            "runs": []
+        }
+
+        # Collect all visible YAML files
+        all_files = []
+        for beamline_dir in self.archive_root.iterdir():
+            if not beamline_dir.is_dir() or beamline_dir.name.startswith('.'):
+                continue
+            for root, dirs, files in os.walk(beamline_dir):
+                # Filter out hidden directories
+                dirs[:] = [d for d in dirs if not d.startswith('.')]
+                for filename in files:
+                    if filename.endswith('.yaml') and not filename.startswith('.'):
+                        all_files.append(Path(root) / filename)
+
+        total = len(all_files)
+        logger.info(f"Found {total} run files to index")
+
+        # Initial progress update
+        if progress_callback:
+            progress_callback(0, total, "start")
+
+        # Load metadata for each file
+        for file_path in all_files:
+            try:
+                # Load full metadata using existing method
+                rel_path = str(file_path.relative_to(self.archive_root))
+                metadata = self.load_run_metadata(rel_path)
+
+                # Convert to serializable format (datetime -> string)
+                serializable_metadata = {
+                    "run_filename": rel_path,
+                    "timestamp": metadata["timestamp"].isoformat(),
+                    "run_name": metadata["name"],
+                    "beamline": metadata["beamline"],
+                    "badger_environment": metadata["badger_environment"],
+                    "algorithm": metadata["algorithm"],
+                    "variables": metadata["variables"],
+                    "objectives": metadata["objectives"],
+                    "constraints": metadata.get("constraints", []),
+                    "num_evaluations": metadata["num_evaluations"],
+                    "initial_objective_values": metadata.get("initial_values"),
+                    "min_objective_values": metadata.get("min_values"),
+                    "max_objective_values": metadata.get("max_values"),
+                    "final_objective_values": metadata.get("final_values"),
+                    "description": metadata.get("description", ""),
+                    "tags": metadata.get("tags")
+                }
+
+                index["runs"].append(serializable_metadata)
+
+            except Exception as e:
+                logger.warning(f"Failed to index {file_path}: {e}")
+                continue
+
+        # Final progress update
+        if progress_callback:
+            progress_callback(total, total, "complete")
+
+        index["total_runs"] = len(index["runs"])
+
+        # Sort by timestamp (newest first) for efficient filtering
+        index["runs"].sort(key=lambda r: r["timestamp"], reverse=True)
+
+        logger.info(f"Built index with {index['total_runs']} runs")
+        return index
+
     def list_runs(
         self,
         time_range: Optional[Dict[str, str]] = None,
@@ -141,8 +269,7 @@ class BadgerArchiveDataSource:
         """
         List run filenames matching filters, sorted by run timestamp (newest first).
 
-        Timestamps are extracted from filenames (e.g., lcls-2025-10-10-154343.yaml)
-        rather than file modification times, making this robust to file copying/moving.
+        Uses cached index for instant filtering. All filters are applied in-memory.
 
         Args:
             time_range: Optional dict with 'start' and 'end' datetime strings (ISO format)
@@ -157,125 +284,51 @@ class BadgerArchiveDataSource:
             Example: ['cu_hxr/2025/2025-09/2025-09-13/lcls-2025-09-13-065422.yaml', ...]
 
         Note:
-            Filters requiring file content (algorithm, badger_environment, objective) are more expensive
-            as they require loading and parsing YAML files. Use sparingly for better performance.
+            Filtering is now instant using the cached index. No file I/O required for filtering.
         """
-        runs = []
+        if self.index is None:
+            logger.error("Index not loaded, cannot list runs")
+            return []
 
-        # Determine which beamline directories to search
-        if beamline:
-            beamline_dirs = [self.archive_root / beamline]
-            # Validate beamline exists
-            if not beamline_dirs[0].exists():
-                logger.warning(f"Beamline directory not found: {beamline}")
-                return []
-        else:
-            # Search all beamline directories (excluding hidden ones)
-            try:
-                beamline_dirs = [d for d in self.archive_root.iterdir() if d.is_dir() and not d.name.startswith('.')]
-            except Exception as e:
-                logger.error(f"Failed to list beamline directories: {e}")
-                return []
+        # Start with all runs (already sorted by timestamp newest first)
+        matching_runs = self.index["runs"]
 
-        # Parse time range if provided
-        start_time = None
-        end_time = None
+        # Apply time range filter
         if time_range:
-            try:
-                if 'start' in time_range:
-                    start_time = datetime.fromisoformat(time_range['start'])
-                if 'end' in time_range:
-                    end_time = datetime.fromisoformat(time_range['end'])
-            except ValueError as e:
-                logger.warning(f"Invalid time range format: {e}")
+            start_str = time_range.get('start')
+            end_str = time_range.get('end')
 
-        # Walk through beamline directories and collect run files
-        for beamline_dir in beamline_dirs:
-            try:
-                # Walk the nested date structure
-                for root, dirs, files in os.walk(beamline_dir):
-                    # Filter out hidden directories (starting with '.')
-                    dirs[:] = [d for d in dirs if not d.startswith('.')]
+            matching_runs = [
+                r for r in matching_runs
+                if (not start_str or r["timestamp"] >= start_str) and
+                   (not end_str or r["timestamp"] <= end_str)
+            ]
 
-                    for filename in files:
-                        # Skip hidden files and non-YAML files
-                        if filename.startswith('.') or not filename.endswith('.yaml'):
-                            continue
+        # Apply beamline filter
+        if beamline:
+            matching_runs = [r for r in matching_runs if r["beamline"] == beamline]
 
-                        file_path = Path(root) / filename
+        # Apply algorithm filter
+        if algorithm:
+            matching_runs = [r for r in matching_runs if r["algorithm"] == algorithm]
 
-                        # Extract timestamp from filename (more reliable than mtime)
-                        file_timestamp = extract_timestamp_from_filename(filename)
-                        if file_timestamp is None:
-                            # Skip files that don't match expected naming pattern
-                            logger.debug(f"Skipping file with non-standard name: {filename}")
-                            continue
+        # Apply badger environment filter
+        if badger_environment:
+            matching_runs = [r for r in matching_runs if r["badger_environment"] == badger_environment]
 
-                        # Apply time filter if specified
-                        if start_time or end_time:
-                            if start_time and file_timestamp < start_time:
-                                continue
-                            if end_time and file_timestamp > end_time:
-                                continue
+        # Apply objective filter (check if objective exists in any of the objective dicts)
+        if objective:
+            matching_runs = [
+                r for r in matching_runs
+                if any(objective in obj_dict for obj_dict in r["objectives"])
+            ]
 
-                        # Store relative path and timestamp from filename
-                        rel_path = file_path.relative_to(self.archive_root)
-                        runs.append((str(rel_path), file_timestamp.timestamp()))
-
-            except Exception as e:
-                logger.warning(f"Failed to walk beamline directory {beamline_dir}: {e}")
-                continue
-
-        # Apply content-based filters if specified (requires loading YAML files)
-        if algorithm or badger_environment or objective:
-            logger.info(f"Applying content-based filters: algorithm={algorithm}, badger_environment={badger_environment}, objective={objective}")
-            filtered_runs = []
-
-            for run_path, timestamp in runs:
-                try:
-                    # Load run file to check content-based filters
-                    full_path = self.archive_root / run_path
-                    with open(full_path, 'r') as f:
-                        run_data = yaml.safe_load(f)
-
-                    # Check algorithm filter
-                    if algorithm:
-                        run_algorithm = run_data.get('generator', {}).get('name')
-                        if run_algorithm != algorithm:
-                            continue
-
-                    # Check badger environment filter
-                    if badger_environment:
-                        run_environment = run_data.get('environment', {}).get('name')
-                        if run_environment != badger_environment:
-                            continue
-
-                    # Check objective filter
-                    if objective:
-                        vocs = run_data.get('vocs', {})
-                        objectives_dict = vocs.get('objectives', {})
-                        if objective not in objectives_dict:
-                            continue
-
-                    # Run passed all filters
-                    filtered_runs.append((run_path, timestamp))
-
-                except Exception as e:
-                    logger.warning(f"Failed to apply content filter to {run_path}: {e}")
-                    continue
-
-            runs = filtered_runs
-            logger.info(f"Content-based filtering resulted in {len(runs)} matching runs")
-
-        # Sort by modification time (newest first)
-        runs.sort(key=lambda x: x[1], reverse=True)
-
-        # Extract just the paths (remove mtime)
-        run_paths = [run[0] for run in runs]
-
-        # Apply limit if specified
+        # Apply limit (already sorted by timestamp newest first)
         if limit is not None:
-            run_paths = run_paths[:limit]
+            matching_runs = matching_runs[:limit]
+
+        # Extract just the file paths
+        run_paths = [r["run_filename"] for r in matching_runs]
 
         logger.info(f"Found {len(run_paths)} runs matching filters")
         return run_paths
@@ -283,6 +336,8 @@ class BadgerArchiveDataSource:
     def load_run_metadata(self, run_path: str) -> Dict[str, Any]:
         """
         Load minimal metadata from run file without full evaluation data.
+
+        Uses cached index data if available, otherwise loads from file.
 
         Args:
             run_path: Relative path from archive root to run file
@@ -309,6 +364,30 @@ class BadgerArchiveDataSource:
             FileNotFoundError: If run file doesn't exist
             yaml.YAMLError: If run file is corrupt
         """
+        # Try to get from index first
+        if self.index:
+            for run in self.index["runs"]:
+                if run["run_filename"] == run_path:
+                    # Convert back to expected format (string -> datetime)
+                    return {
+                        "name": run["run_name"],
+                        "timestamp": datetime.fromisoformat(run["timestamp"]),
+                        "beamline": run["beamline"],
+                        "badger_environment": run["badger_environment"],
+                        "algorithm": run["algorithm"],
+                        "variables": run["variables"],
+                        "objectives": run["objectives"],
+                        "constraints": run.get("constraints", []),
+                        "num_evaluations": run["num_evaluations"],
+                        "initial_values": run.get("initial_objective_values"),
+                        "min_values": run.get("min_objective_values"),
+                        "max_values": run.get("max_objective_values"),
+                        "final_values": run.get("final_objective_values"),
+                        "description": run.get("description", ""),
+                        "tags": run.get("tags")
+                    }
+
+        # Fallback: load from file if not in index
         full_path = self.archive_root / run_path
 
         if not full_path.exists():
@@ -388,8 +467,14 @@ class BadgerArchiveDataSource:
 
                                 if values:
                                     metadata['initial_values'][obj] = values[0]
-                                    metadata['min_values'][obj] = min(values)
-                                    metadata['max_values'][obj] = max(values)
+                                    # Filter out None values for min/max calculation
+                                    numeric_values = [v for v in values if v is not None]
+                                    if numeric_values:
+                                        metadata['min_values'][obj] = min(numeric_values)
+                                        metadata['max_values'][obj] = max(numeric_values)
+                                    else:
+                                        metadata['min_values'][obj] = None
+                                        metadata['max_values'][obj] = None
                                     metadata['final_values'][obj] = values[-1]
                     except Exception as e:
                         logger.warning(f"Failed to extract objective values: {e}")

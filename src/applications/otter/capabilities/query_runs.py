@@ -148,9 +148,21 @@ class QueryRunsCapability(BaseCapability):
                     "Archive root not configured. Please set OTTER_BADGER_ARCHIVE environment variable."
                 )
 
-            # Initialize data source
+            # Define progress callback for index building (start and end only)
+            def progress_callback(current: int, total: int, path: str):
+                """Progress callback for index building - start and end messages only"""
+                if path == "start":
+                    streamer.status(f"Building index for {total} run files (this may take a few minutes)...")
+                elif path == "complete":
+                    streamer.status(f"✅ Archive index built! ({total} runs indexed)")
+
+            # Initialize data source with progress callback
             try:
-                data_source = BadgerArchiveDataSource(archive_root)
+                data_source = BadgerArchiveDataSource(
+                    archive_root,
+                    use_cache=True,
+                    progress_callback=progress_callback
+                )
             except (FileNotFoundError, NotADirectoryError) as e:
                 raise ArchiveAccessError(str(e))
 
@@ -420,6 +432,28 @@ class QueryRunsCapability(BaseCapability):
             notes="Multiple filters are AND-ed together (all conditions must match)"
         )
 
+        # Example 8: Multi-step - Query then respond with info extraction
+        # This shows how to extract information from run contexts
+        info_extraction_example = OrchestratorExample(
+            # This would be step 2 in a multi-step plan
+            # Step 1 would be query_runs to load the runs into BADGER_RUN contexts
+            # Step 2 is respond to extract specific info from those contexts
+            step=PlannedStep(
+                context_key="algorithm_summary",
+                capability="respond",
+                task_objective="Tell user which algorithms were used in the loaded runs",
+                expected_output="user_response",
+                success_criteria="User receives information about algorithms from run contexts",
+                inputs=[{"BADGER_RUN": "lcls_ii_runs"}],  # References runs from previous step
+                parameters={}
+            ),
+            scenario_description="User wants to know specific information (like algorithms) from runs - requires 2 steps: query_runs then respond",
+            notes="IMPORTANT: When user asks for information FROM runs (algorithms, objectives, results), use 2-step plan:\n"
+                  "1. query_runs to load runs into BADGER_RUN contexts\n"
+                  "2. respond with inputs=[BADGER_RUN contexts] to extract and present the information\n"
+                  "The respond capability can read all fields from BADGER_RUN contexts: algorithm, variables, objectives, etc."
+        )
+
         return OrchestratorGuide(
             instructions=textwrap.dedent(f"""
                 **When to plan "query_runs" steps:**
@@ -429,6 +463,18 @@ class QueryRunsCapability(BaseCapability):
                 - User asks about runs using a specific algorithm (expected_improvement, neldermead, etc.)
                 - User asks about runs from a Badger environment (lcls, sphere, etc.)
                 - User asks about runs that optimized a specific objective
+
+                **IMPORTANT: Two-step pattern for information extraction:**
+                When user asks for INFORMATION FROM runs (not just loading runs), use a 2-step plan:
+
+                Example: "Tell me which algorithm was used for the most recent 3 runs on lcls_ii"
+                Step 1: query_runs with parameters={{"beamline": "lcls_ii", "num_runs": 3}}
+                        → Creates BADGER_RUN contexts (run_0, run_1, run_2)
+                Step 2: respond with inputs=[{{"BADGER_RUN": "run_0"}}, {{"BADGER_RUN": "run_1"}}, {{"BADGER_RUN": "run_2"}}]
+                        → Respond capability reads algorithm field from each context and tells user
+
+                DO NOT hallucinate capabilities like "extract_algorithms" or "analyze_runs"!
+                Use query_runs to load, then respond to present information from the contexts.
 
                 **CRITICAL: Use `parameters` field (NOT filter)!**
                 Parse natural language into simple parameters and put them in step["parameters"]:
@@ -485,7 +531,8 @@ class QueryRunsCapability(BaseCapability):
                 algorithm_example,
                 environment_example,
                 objective_example,
-                combined_example
+                combined_example,
+                info_extraction_example
             ],
             priority=5
         )
