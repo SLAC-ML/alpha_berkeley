@@ -1,0 +1,40 @@
+# Otter Application Configuration
+# Configuration specific to the Otter Badger optimization run assistant
+
+# External Services
+external_services:
+  badger:
+    # Path to Badger repository (for loading utilities if needed)
+    repo_path: ${BADGER_REPO_PATH}
+    # Archive root directory containing all historical runs
+    archive_root: ${OTTER_BADGER_ARCHIVE}
+
+# Model Configuration (for future capabilities)
+models:
+  run_analysis:
+    # For analyzing run statistics and patterns
+    provider: openai
+    model_id: gpt-4o
+    max_tokens: 4096
+
+  routine_composition:
+    # For composing Badger routines from specifications
+    provider: openai
+    model_id: gpt-4o
+    max_tokens: 4096
+
+  terminology_inference:
+    # For mapping ambiguous terms to actual objective/variable names
+    provider: openai
+    model_id: gpt-4o
+    max_tokens: 2048
+
+# Logging Configuration
+logging:
+  logging_colors:
+    # Otter capability colors (distinct from other applications)
+    query_runs: "chartreuse3"
+    analyze_runs: "dark_sea_green3"
+    search_runs: "medium_spring_green"
+    compose_routine: "spring_green2"
+    infer_terminology: "pale_green3"

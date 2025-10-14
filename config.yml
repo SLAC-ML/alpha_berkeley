@@ -13,9 +13,10 @@ project_root: ${PROJECT_ROOT}
 # - Registry: src/applications/{app}/registry.py
 
 applications:
+  - otter
   # - als_assistant
   # - wind_turbine
-  - hello_world_weather
+  # - hello_world_weather
 
 # ============================================================
 # MODEL CONFIGURATION OVERRIDES - Use Stanford AI Playground
