@@ -102,6 +102,12 @@ class QueryRunsCapability(BaseCapability):
                 filter_params["num_runs"] = int(step_parameters["num_runs"])
             if "beamline" in step_parameters:
                 filter_params["beamline"] = str(step_parameters["beamline"])
+            if "algorithm" in step_parameters:
+                filter_params["algorithm"] = str(step_parameters["algorithm"])
+            if "badger_environment" in step_parameters:
+                filter_params["badger_environment"] = str(step_parameters["badger_environment"])
+            if "objective" in step_parameters:
+                filter_params["objective"] = str(step_parameters["objective"])
 
             # Extract time_range from inputs (optional - comes from TIME_RANGE context if provided)
             step_inputs = step.get("inputs", [])
@@ -152,7 +158,10 @@ class QueryRunsCapability(BaseCapability):
             run_paths = data_source.list_runs(
                 time_range=filter_params.get("time_range"),
                 limit=filter_params.get("num_runs"),
-                beamline=filter_params.get("beamline")
+                beamline=filter_params.get("beamline"),
+                algorithm=filter_params.get("algorithm"),
+                badger_environment=filter_params.get("badger_environment"),
+                objective=filter_params.get("objective")
             )
 
             if not run_paths:
@@ -351,12 +360,75 @@ class QueryRunsCapability(BaseCapability):
             notes="Beamline filter limits search to specific subdirectory in archive (e.g., 'cu_hxr', 'lcls_ii')"
         )
 
+        # Example 4: Algorithm-specific query
+        algorithm_example = OrchestratorExample(
+            step=PlannedStep(
+                context_key="expected_improvement_runs",
+                capability="query_runs",
+                task_objective="Get runs that used the expected_improvement algorithm",
+                expected_output=registry.context_types.BADGER_RUN,
+                success_criteria="Runs using expected_improvement algorithm loaded",
+                inputs=[],
+                parameters={"algorithm": "expected_improvement", "num_runs": 5}
+            ),
+            scenario_description="User wants runs that used a specific optimization algorithm",
+            notes="Algorithm filter requires exact match (e.g., 'expected_improvement', 'neldermead', 'mobo', 'rcds')"
+        )
+
+        # Example 5: Badger environment-specific query
+        environment_example = OrchestratorExample(
+            step=PlannedStep(
+                context_key="lcls_env_runs",
+                capability="query_runs",
+                task_objective="Get runs from the LCLS Badger environment",
+                expected_output=registry.context_types.BADGER_RUN,
+                success_criteria="Runs from LCLS environment loaded",
+                inputs=[],
+                parameters={"badger_environment": "lcls", "num_runs": 5}
+            ),
+            scenario_description="User wants runs from a specific Badger environment (not beamline)",
+            notes="Badger environment is the software environment used (e.g., 'lcls', 'sphere'), different from beamline"
+        )
+
+        # Example 6: Objective-specific query
+        objective_example = OrchestratorExample(
+            step=PlannedStep(
+                context_key="pulse_intensity_runs",
+                capability="query_runs",
+                task_objective="Get runs that optimized pulse_intensity_p80 objective",
+                expected_output=registry.context_types.BADGER_RUN,
+                success_criteria="Runs with pulse_intensity_p80 objective loaded",
+                inputs=[],
+                parameters={"objective": "pulse_intensity_p80", "num_runs": 5}
+            ),
+            scenario_description="User wants runs that optimized a specific objective function",
+            notes="Objective filter requires exact objective name from VOCS"
+        )
+
+        # Example 7: Combined filters
+        combined_example = OrchestratorExample(
+            step=PlannedStep(
+                context_key="lcls_ii_neldermead_runs",
+                capability="query_runs",
+                task_objective="Get neldermead runs from lcls_ii beamline",
+                expected_output=registry.context_types.BADGER_RUN,
+                success_criteria="Neldermead runs from lcls_ii loaded",
+                inputs=[],
+                parameters={"beamline": "lcls_ii", "algorithm": "neldermead", "num_runs": 3}
+            ),
+            scenario_description="User wants runs with multiple specific criteria",
+            notes="Multiple filters are AND-ed together (all conditions must match)"
+        )
+
         return OrchestratorGuide(
             instructions=textwrap.dedent(f"""
                 **When to plan "query_runs" steps:**
                 - User asks about recent runs ("most recent run", "last 5 runs")
                 - User needs run information for analysis or comparison
                 - User asks about runs from a specific beamline (cu_hxr, lcls_ii, etc.)
+                - User asks about runs using a specific algorithm (expected_improvement, neldermead, etc.)
+                - User asks about runs from a Badger environment (lcls, sphere, etc.)
+                - User asks about runs that optimized a specific objective
 
                 **CRITICAL: Use `parameters` field (NOT filter)!**
                 Parse natural language into simple parameters and put them in step["parameters"]:
@@ -370,15 +442,27 @@ class QueryRunsCapability(BaseCapability):
                 User query: "Show me runs from cu_hxr beamline"
                 → step["parameters"] = {{"beamline": "cu_hxr", "num_runs": 10}}
 
-                User query: "Show me runs from lcls_ii"
-                → step["parameters"] = {{"beamline": "lcls_ii", "num_runs": 10}}
+                User query: "Show me runs that used expected_improvement algorithm"
+                → step["parameters"] = {{"algorithm": "expected_improvement", "num_runs": 5}}
+
+                User query: "Show me runs from lcls environment"
+                → step["parameters"] = {{"badger_environment": "lcls", "num_runs": 5}}
+
+                User query: "Show me neldermead runs from lcls_ii"
+                → step["parameters"] = {{"beamline": "lcls_ii", "algorithm": "neldermead", "num_runs": 3}}
 
                 **Available Parameters (all optional):**
                 - num_runs: int (number of runs to return, default=1 if not specified)
-                - beamline: str (beamline directory name, e.g., "cu_hxr", "cu_sxr", "lcls_ii")
+                - beamline: str (beamline directory, e.g., "cu_hxr", "cu_sxr", "lcls_ii")
+                - algorithm: str (optimization algorithm, e.g., "expected_improvement", "neldermead", "mobo", "rcds")
+                - badger_environment: str (Badger environment, e.g., "lcls", "sphere")
+                - objective: str (objective function name from VOCS, e.g., "pulse_intensity_p80")
 
-                **IMPORTANT:** parameters field only accepts str/int/float values, NOT dictionaries!
-                Time-based filtering is not supported via parameters yet.
+                **IMPORTANT:**
+                - Parameters field only accepts str/int/float values, NOT dictionaries!
+                - Filters requiring content (algorithm, badger_environment, objective) are more expensive
+                - Algorithm/environment/objective names require EXACT match
+                - Multiple filters are AND-ed together (all must match)
 
                 **Output: {registry.context_types.BADGER_RUN}**
                 - Contains run metadata: name, algorithm, variables, objectives, evaluations
@@ -397,7 +481,11 @@ class QueryRunsCapability(BaseCapability):
             examples=[
                 most_recent_example,
                 last_n_example,
-                beamline_example
+                beamline_example,
+                algorithm_example,
+                environment_example,
+                objective_example,
+                combined_example
             ],
             priority=5
         )
@@ -433,6 +521,26 @@ class QueryRunsCapability(BaseCapability):
                     query="Show me runs from lcls_ii",
                     result=True,
                     reason="Beamline-specific run query (lcls_ii is a beamline directory)."
+                ),
+                ClassifierExample(
+                    query="Show me runs that used expected_improvement",
+                    result=True,
+                    reason="Algorithm-specific run query."
+                ),
+                ClassifierExample(
+                    query="Show me neldermead runs",
+                    result=True,
+                    reason="Algorithm-specific run query."
+                ),
+                ClassifierExample(
+                    query="Show me runs from the lcls environment",
+                    result=True,
+                    reason="Badger environment-specific run query."
+                ),
+                ClassifierExample(
+                    query="Show me runs that optimized pulse intensity",
+                    result=True,
+                    reason="Objective-specific run query."
                 ),
                 ClassifierExample(
                     query="What is the weather today?",

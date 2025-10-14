@@ -133,7 +133,10 @@ class BadgerArchiveDataSource:
         self,
         time_range: Optional[Dict[str, str]] = None,
         limit: Optional[int] = None,
-        beamline: Optional[str] = None
+        beamline: Optional[str] = None,
+        algorithm: Optional[str] = None,
+        badger_environment: Optional[str] = None,
+        objective: Optional[str] = None
     ) -> List[str]:
         """
         List run filenames matching filters, sorted by run timestamp (newest first).
@@ -145,10 +148,17 @@ class BadgerArchiveDataSource:
             time_range: Optional dict with 'start' and 'end' datetime strings (ISO format)
             limit: Optional maximum number of runs to return (None = all)
             beamline: Optional beamline name filter (e.g., 'cu_hxr', 'cu_sxr', 'lcls_ii')
+            algorithm: Optional algorithm/generator name filter (e.g., 'expected_improvement', 'neldermead')
+            badger_environment: Optional Badger environment name filter (e.g., 'lcls', 'sphere')
+            objective: Optional objective name filter (e.g., 'pulse_intensity_p80')
 
         Returns:
             List of relative paths from archive root
             Example: ['cu_hxr/2025/2025-09/2025-09-13/lcls-2025-09-13-065422.yaml', ...]
+
+        Note:
+            Filters requiring file content (algorithm, badger_environment, objective) are more expensive
+            as they require loading and parsing YAML files. Use sparingly for better performance.
         """
         runs = []
 
@@ -215,6 +225,47 @@ class BadgerArchiveDataSource:
             except Exception as e:
                 logger.warning(f"Failed to walk beamline directory {beamline_dir}: {e}")
                 continue
+
+        # Apply content-based filters if specified (requires loading YAML files)
+        if algorithm or badger_environment or objective:
+            logger.info(f"Applying content-based filters: algorithm={algorithm}, badger_environment={badger_environment}, objective={objective}")
+            filtered_runs = []
+
+            for run_path, timestamp in runs:
+                try:
+                    # Load run file to check content-based filters
+                    full_path = self.archive_root / run_path
+                    with open(full_path, 'r') as f:
+                        run_data = yaml.safe_load(f)
+
+                    # Check algorithm filter
+                    if algorithm:
+                        run_algorithm = run_data.get('generator', {}).get('name')
+                        if run_algorithm != algorithm:
+                            continue
+
+                    # Check badger environment filter
+                    if badger_environment:
+                        run_environment = run_data.get('environment', {}).get('name')
+                        if run_environment != badger_environment:
+                            continue
+
+                    # Check objective filter
+                    if objective:
+                        vocs = run_data.get('vocs', {})
+                        objectives_dict = vocs.get('objectives', {})
+                        if objective not in objectives_dict:
+                            continue
+
+                    # Run passed all filters
+                    filtered_runs.append((run_path, timestamp))
+
+                except Exception as e:
+                    logger.warning(f"Failed to apply content filter to {run_path}: {e}")
+                    continue
+
+            runs = filtered_runs
+            logger.info(f"Content-based filtering resulted in {len(runs)} matching runs")
 
         # Sort by modification time (newest first)
         runs.sort(key=lambda x: x[1], reverse=True)
@@ -362,15 +413,30 @@ class BadgerArchiveDataSource:
             logger.error(f"Failed to load run metadata from {run_path}: {e}")
             raise
 
-    def get_most_recent_run(self, beamline: Optional[str] = None) -> Optional[str]:
+    def get_most_recent_run(
+        self,
+        beamline: Optional[str] = None,
+        algorithm: Optional[str] = None,
+        badger_environment: Optional[str] = None,
+        objective: Optional[str] = None
+    ) -> Optional[str]:
         """
         Convenience method to get the most recent run filename.
 
         Args:
             beamline: Optional beamline name filter (e.g., 'cu_hxr', 'lcls_ii')
+            algorithm: Optional algorithm/generator name filter (e.g., 'expected_improvement')
+            badger_environment: Optional Badger environment name filter (e.g., 'lcls')
+            objective: Optional objective name filter (e.g., 'pulse_intensity_p80')
 
         Returns:
             Relative path to most recent run, or None if no runs found
         """
-        runs = self.list_runs(limit=1, beamline=beamline)
+        runs = self.list_runs(
+            limit=1,
+            beamline=beamline,
+            algorithm=algorithm,
+            badger_environment=badger_environment,
+            objective=objective
+        )
         return runs[0] if runs else None
