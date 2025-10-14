@@ -77,7 +77,7 @@ class QueryRunsCapability(BaseCapability):
     name = "query_runs"
     description = "Query Badger optimization runs from archive with time and count filters"
     provides = ["BADGER_RUN"]
-    requires = []  # No context dependencies
+    requires = []  # No hard requirements; TIME_RANGE is optional input if provided
 
     @staticmethod
     async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
@@ -102,8 +102,27 @@ class QueryRunsCapability(BaseCapability):
                 filter_params["num_runs"] = int(step_parameters["num_runs"])
             if "beamline" in step_parameters:
                 filter_params["beamline"] = str(step_parameters["beamline"])
-            # Note: time_range can't be passed via parameters (dict not allowed)
-            # Would need to be parsed from task_objective or handled differently
+
+            # Extract time_range from inputs (optional - comes from TIME_RANGE context if provided)
+            step_inputs = step.get("inputs", [])
+            for input_item in step_inputs:
+                if "TIME_RANGE" in input_item:
+                    time_range_key = input_item["TIME_RANGE"]
+                    # Get the TIME_RANGE context from state using ContextManager
+                    from framework.context.context_manager import ContextManager
+                    context_manager = ContextManager(state)
+                    time_range_context = context_manager.get_context(
+                        registry.context_types.TIME_RANGE,
+                        time_range_key
+                    )
+                    if time_range_context:
+                        # Convert to format expected by data source
+                        filter_params["time_range"] = {
+                            "start": time_range_context.start_date.isoformat(),
+                            "end": time_range_context.end_date.isoformat()
+                        }
+                        logger.info(f"Applied time range filter: {filter_params['time_range']}")
+                        break
 
             # Safety default: if no filter provided, default to 1 run to avoid loading all runs
             if not filter_params or "num_runs" not in filter_params:
