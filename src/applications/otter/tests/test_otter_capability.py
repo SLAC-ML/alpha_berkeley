@@ -12,7 +12,7 @@ import asyncio
 from pathlib import Path
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -31,7 +31,7 @@ async def test_capability_with_filter():
     mock_state = {
         "messages": [],
         "current_task": "Tell me about the most recent run",
-        "execution_plan": {
+        "planning_execution_plan": {
             "steps": [
                 {
                     "context_key": "test_run",
@@ -44,12 +44,12 @@ async def test_capability_with_filter():
                 }
             ]
         },
-        "current_step_index": 0,
+        "planning_current_step_index": 0,
         "capability_context_data": {},
     }
 
     print("\n📋 Mock Step Configuration:")
-    current_step = mock_state["execution_plan"]["steps"][0]
+    current_step = mock_state["planning_execution_plan"]["steps"][0]
     print(f"  Capability: {current_step['capability']}")
     print(f"  Parameters: {current_step.get('parameters', 'NO PARAMETERS')}")
     print(f"  Expected: Should load exactly 1 run")
@@ -103,7 +103,7 @@ async def test_capability_no_filter():
     mock_state = {
         "messages": [],
         "current_task": "Tell me about the most recent run",
-        "execution_plan": {
+        "planning_execution_plan": {
             "steps": [
                 {
                     "context_key": "test_run",
@@ -116,12 +116,12 @@ async def test_capability_no_filter():
                 }
             ]
         },
-        "current_step_index": 0,
+        "planning_current_step_index": 0,
         "capability_context_data": {},
     }
 
     print("\n📋 Mock Step Configuration:")
-    current_step = mock_state["execution_plan"]["steps"][0]
+    current_step = mock_state["planning_execution_plan"]["steps"][0]
     print(f"  Capability: {current_step['capability']}")
     print(f"  Parameters: {current_step.get('parameters', 'NO PARAMETERS PROVIDED')}")
     print(f"  Expected: Should default to num_runs=1 and load exactly 1 run")
@@ -160,7 +160,7 @@ async def test_capability_with_limit_5():
     mock_state = {
         "messages": [],
         "current_task": "Show me the last 5 runs",
-        "execution_plan": {
+        "planning_execution_plan": {
             "steps": [
                 {
                     "context_key": "recent_runs",
@@ -173,12 +173,12 @@ async def test_capability_with_limit_5():
                 }
             ]
         },
-        "current_step_index": 0,
+        "planning_current_step_index": 0,
         "capability_context_data": {},
     }
 
     print("\n📋 Mock Step Configuration:")
-    current_step = mock_state["execution_plan"]["steps"][0]
+    current_step = mock_state["planning_execution_plan"]["steps"][0]
     print(f"  Capability: {current_step['capability']}")
     print(f"  Parameters: {current_step.get('parameters')}")
     print(f"  Expected: Should load exactly 5 runs")
@@ -207,6 +207,103 @@ async def test_capability_with_limit_5():
         return False
 
 
+async def test_capability_with_time_range():
+    """Test capability with TIME_RANGE context from inputs"""
+    print("\n" + "=" * 80)
+    print("TEST: Query Runs Capability with TIME_RANGE Context Input")
+    print("=" * 80)
+
+    from datetime import datetime
+
+    from framework.capabilities.time_range_parsing import TimeRangeContext
+
+    # Create a TIME_RANGE context for August 2025
+    time_range_context = TimeRangeContext(
+        start_date=datetime(2025, 8, 1, 0, 0, 0),
+        end_date=datetime(2025, 8, 31, 23, 59, 59)
+    )
+
+    # Create mock state with TIME_RANGE in inputs
+    mock_state = {
+        "messages": [],
+        "current_task": "Show me 3 runs from August 2025",
+        "planning_execution_plan": {
+            "steps": [
+                {
+                    "context_key": "august_runs",
+                    "capability": "query_runs",
+                    "task_objective": "Get 3 Badger runs from August 2025",
+                    "parameters": {"num_runs": 3},
+                    "expected_output": "BADGER_RUN",
+                    "success_criteria": "3 runs from August 2025 loaded",
+                    "inputs": [{"TIME_RANGE": "time_range_august_2025"}]  # Reference to TIME_RANGE context
+                }
+            ]
+        },
+        "planning_current_step_index": 0,
+        "capability_context_data": {
+            "TIME_RANGE": {
+                "time_range_august_2025": time_range_context
+            }
+        },
+    }
+
+    print("\n📋 Mock Step Configuration:")
+    current_step = mock_state["planning_execution_plan"]["steps"][0]
+    print(f"  Capability: {current_step['capability']}")
+    print(f"  Parameters: {current_step.get('parameters')}")
+    print(f"  Inputs: {current_step.get('inputs')}")
+    print("  Expected: Should load up to 3 runs from August 2025")
+    print("\n📅 TIME_RANGE Context:")
+    print(f"  Start: {time_range_context.start_date}")
+    print(f"  End: {time_range_context.end_date}")
+
+    print("\n🔄 Executing capability...")
+    try:
+        result = await QueryRunsCapability.execute(mock_state)
+
+        print("\n✅ Capability executed successfully!")
+
+        # Count contexts
+        badger_run_keys = [k for k in result.keys() if "BADGER_RUN" in k]
+        print(f"\n📊 Result: Created {len(badger_run_keys)} BADGER_RUN contexts")
+
+        # Check timestamps of returned runs
+        august_runs = 0
+        non_august_runs = 0
+
+        for key in badger_run_keys:
+            context_dict = result[key]
+            for context in context_dict.values():
+                if hasattr(context, 'timestamp'):
+                    if context.timestamp.month == 8 and context.timestamp.year == 2025:
+                        august_runs += 1
+                        print(f"  ✅ Run from August 2025: {context.run_name} ({context.timestamp})")
+                    else:
+                        non_august_runs += 1
+                        print(f"  ❌ Run NOT from August 2025: {context.run_name} ({context.timestamp})")
+
+        print("\n📈 Time Range Filter Results:")
+        print(f"  Runs from August 2025: {august_runs}")
+        print(f"  Runs from other months: {non_august_runs}")
+
+        if non_august_runs > 0:
+            print("\n❌ TIME_RANGE filter was NOT applied correctly!")
+            return False
+        elif august_runs == 0:
+            print("\n⚠️  No runs found in August 2025 (might be expected if archive doesn't have data)")
+            return True
+        else:
+            print("\n✅ TIME_RANGE filter applied correctly - all returned runs are from August 2025!")
+            return True
+
+    except Exception as e:
+        print(f"\n❌ Capability execution failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
 async def main():
     """Run all capability tests"""
     print("\n" + "=" * 80)
@@ -225,6 +322,9 @@ async def main():
 
     # Test 3: With limit=5
     results.append(await test_capability_with_limit_5())
+
+    # Test 4: With TIME_RANGE context
+    results.append(await test_capability_with_time_range())
 
     # Summary
     print("\n" + "=" * 80)
