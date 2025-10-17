@@ -171,16 +171,10 @@ alpha-berkeley = "interfaces.CLI.direct_conversation:main"
 alpha-berkeley-deploy = "deployment.container_manager:main"
 alpha-berkeley-docs = "docs.launch_docs:main"
 
-# Package discovery configuration for src layout
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["framework*", "configs*", "applications*"]
-
-# Additional package discovery for interfaces and deployment
-[tool.setuptools.packages]
-"interfaces" = "interfaces"
-"deployment" = "deployment"
-"docs" = "docs"
+# Package discovery configuration
+[tool.setuptools]
+packages = ["framework", "configs", "applications", "interfaces", "deployment", "docs"]
+package-dir = {"framework" = "src/framework", "configs" = "src/configs", "applications" = "src/applications"}
 
 # Include package data files
 [tool.setuptools.package-data]
