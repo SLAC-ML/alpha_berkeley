@@ -9,6 +9,7 @@ from framework.registry import (
     CapabilityRegistration,
     ContextClassRegistration,
     DataSourceRegistration,
+    FrameworkPromptProviderRegistration,
     RegistryConfig,
     RegistryConfigProvider
 )
@@ -31,6 +32,14 @@ class OtterRegistryProvider(RegistryConfigProvider):
             # ====================
             capabilities=[
                 CapabilityRegistration(
+                    name="extract_run_filters",
+                    module_path="applications.otter.capabilities.extract_run_filters",
+                    class_name="ExtractRunFiltersCapability",
+                    description="Extract structured run query filters from natural language",
+                    provides=["RUN_QUERY_FILTERS"],
+                    requires=[]
+                ),
+                CapabilityRegistration(
                     name="query_runs",
                     module_path="applications.otter.capabilities.query_runs",
                     class_name="QueryRunsCapability",
@@ -38,8 +47,25 @@ class OtterRegistryProvider(RegistryConfigProvider):
                     provides=["BADGER_RUN"],
                     requires=[]
                 ),
-                # Future capabilities will be added here:
-                # - analyze_runs: Generate statistics and analysis from historical runs
+                CapabilityRegistration(
+                    name="analyze_runs",
+                    module_path="applications.otter.capabilities.analyze_runs",
+                    class_name="AnalyzeRunsCapability",
+                    description="Analyze and compare multiple runs",
+                    provides=["RUN_ANALYSIS"],
+                    requires=["BADGER_RUN"]
+                ),
+                CapabilityRegistration(
+                    name="propose_routines",
+                    module_path=(
+                        "applications.otter.capabilities.propose_routines"
+                    ),
+                    class_name="ProposeRoutinesCapability",
+                    description="Generate routine proposals from analysis",
+                    provides=["ROUTINE_PROPOSAL"],
+                    requires=["RUN_ANALYSIS"]
+                ),
+                # Future capabilities:
                 # - search_runs: Find runs matching complex criteria (VOCS-based filtering)
                 # - infer_terminology: Map ambiguous terms to actual objective/variable names
                 # - compose_routine: Generate complete Badger routine from specifications
@@ -50,12 +76,26 @@ class OtterRegistryProvider(RegistryConfigProvider):
             # ====================
             context_classes=[
                 ContextClassRegistration(
+                    context_type="RUN_QUERY_FILTERS",
+                    module_path="applications.otter.context_classes",
+                    class_name="RunQueryFilters"
+                ),
+                ContextClassRegistration(
                     context_type="BADGER_RUN",
                     module_path="applications.otter.context_classes",
                     class_name="BadgerRunContext"
                 ),
-                # Future context classes will be added here:
-                # - RUN_ANALYSIS: For statistics and analysis results
+                ContextClassRegistration(
+                    context_type="RUN_ANALYSIS",
+                    module_path="applications.otter.context_classes",
+                    class_name="RunAnalysisContext"
+                ),
+                ContextClassRegistration(
+                    context_type="ROUTINE_PROPOSAL",
+                    module_path="applications.otter.context_classes",
+                    class_name="RoutineProposalContext"
+                ),
+                # Future context classes:
                 # - ROUTINE_SPEC: For VOCS specifications
                 # - BADGER_ROUTINE: For complete executable routines
             ],
@@ -76,9 +116,18 @@ class OtterRegistryProvider(RegistryConfigProvider):
             # ====================
             # Framework Prompt Providers
             # ====================
-            # Not needed for Phase 1 - using default framework prompts
-            # Can be added later if we need Otter-specific orchestration or classification prompts
-            framework_prompt_providers=[],
+            # Otter-specific prompts inject Bayesian Optimization domain knowledge
+            framework_prompt_providers=[
+                FrameworkPromptProviderRegistration(
+                    application_name="otter",
+                    module_path="applications.otter.framework_prompts",
+                    description="Otter-specific framework prompts with Badger/BO domain knowledge for correct run analysis",
+                    prompt_builders={
+                        "response_generation": "OtterResponseGenerationPromptBuilder",
+                        "orchestrator": "OtterOrchestratorPromptBuilder",
+                    }
+                )
+            ],
 
             # ====================
             # Framework Exclusions
