@@ -56,6 +56,10 @@ framework:
       provider: stanford
       model_id: gpt-4.omini  # Replaces ollama's mistral:7b
       max_tokens: 512
+    filter_extraction:
+      provider: stanford
+      model_id: gpt-4.omini  # Fast model for extracting run query filters
+      max_tokens: 1024  # More tokens than time_parsing for complex filter combinations
 
 # ============================================================
 # OPERATOR CONTROLS - System-wide governance and safety policies
