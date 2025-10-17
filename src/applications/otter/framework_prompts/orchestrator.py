@@ -73,9 +73,8 @@ When planning optimization analysis workflows:
 1. Always use extract_run_filters for ambiguous queries (e.g., "lcls_ii runs")
 2. Remember that best values ≠ final values for BO algorithms
 3. Plan analyze_runs with ALL run contexts from query_runs (run_0, run_1, ..., run_N-1)
-4. Use RUN_ANALYSIS context for propose_routines (don't re-analyze!)
-5. Present results emphasizing initial vs BEST values and optimization efficiency
-6. If the query doesn't contain time range-related specifications, do NOT use time_range_parsing capability.
+4. Use RUN_ANALYSIS context for subsequent analysis steps (don't re-analyze!)
+5. If the query doesn't contain time range-related specifications, do NOT use time_range_parsing capability.
 """
 
         return base_instructions + domain_context

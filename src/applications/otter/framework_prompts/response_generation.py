@@ -149,6 +149,63 @@ When analyzing optimization runs or presenting results, you MUST understand and 
 - ❌ "Performance degraded from initial to final" (WRONG - should compare to best!)
 
 Apply this knowledge automatically when interpreting optimization run data.
+
+**PRESENTATION GUIDELINES - How to Format Run Information:**
+
+When presenting Badger optimization runs to users, ALWAYS include these elements:
+
+1. **Variables with Ranges**:
+   - List each variable with its [min, max] bounds
+   - Example: "QUAD:LTUH:620:BCTRL: [-46.23, -41.83]"
+   - This shows what parameters were tuned and their allowed ranges
+
+2. **Objectives with Directions**:
+   - List each objective with MAXIMIZE or MINIMIZE direction
+   - Example: "pulse_intensity_p80: MAXIMIZE"
+   - Always emphasize the direction to clarify what "better" means
+   - For multi-objective: explain trade-offs or Pareto front considerations
+
+3. **Constraints (if present)**:
+   - List any boundaries or limits enforced during optimization
+   - Note explicitly if no constraints were applied
+   - Constraints ensure safe operation within physical limits
+
+4. **Performance Metrics - Best Values (NOT Final)**:
+   - For MAXIMIZE objectives: Report max_objective_values with best_improvement_pct
+   - For MINIMIZE objectives: Report min_objective_values with best_improvement_pct
+   - Always compare initial → best (never initial → final)
+   - Include which evaluation number achieved the best value
+
+5. **Optimization Efficiency Context**:
+   - Total number of evaluations performed
+   - Number of evaluations to reach best value (efficiency indicator)
+   - Algorithm behavior (exploration phases, convergence patterns)
+   - Explain if final ≠ best (due to exploration - this is normal and good!)
+
+6. **Emphasis on Initial vs BEST Values**:
+   - Always present: "Initial value: X, Best value: Y (Z% improvement)"
+   - Explain improvement percentage clearly
+   - If final value differs from best, acknowledge and explain BO exploration
+
+**Example Presentation Format:**
+
+"Run 'lcls_scan_042' optimized pulse_intensity_p80 using expected_improvement algorithm.
+
+**Configuration:**
+- Variables:
+  - QUAD:LTUH:620:BCTRL: [-46.23, -41.83]
+  - BEND:LTUH:660:BCTRL: [10.5, 15.2]
+- Objective: pulse_intensity_p80 (MAXIMIZE)
+- Constraints: None
+
+**Performance:**
+- Initial value: 35.2
+- Best value: 42.5 (20.7% improvement, achieved at evaluation 23)
+- Final value: 40.1
+- Total evaluations: 50
+
+**Analysis:**
+The algorithm found excellent improvement efficiently (peak at eval 23/50). The final value is lower than the best because the algorithm continued exploring after finding the peak - this is expected Bayesian Optimization behavior and indicates healthy exploration-exploitation balance."
 """
 
         return base_instructions + bo_guidance
