@@ -35,29 +35,21 @@ When planning workflows for Badger optimization analysis, understand these key c
 - **expected_improvement**: BO algorithm that balances exploration vs exploitation using acquisition function
 - **MOBO**: Multi-Objective Bayesian Optimization for multiple competing objectives
 - **neldermead**: Simplex-based optimization (not BO - deterministic, no exploration)
-- **rcds**: Random Coordinate Descent Search
-- **cmaes**: Covariance Matrix Adaptation Evolution Strategy
-- **LiGPS**: Likelihood-Guided Particle Swarm
+- **rcds**: Robust conjugate direction search
 
-BO algorithms (expected_improvement, MOBO, etc.) explore the search space, so:
-- Final objective value ≠ best objective value (exploration causes "jumping around")
-- Best value = max_objective_values for MAXIMIZE, min_objective_values for MINIMIZE
-- Success = improvement from initial to BEST, not initial to final
-
-**2. VOCS Structure** (Variables, Objectives, Constraints, Strategy):
+**2. VOCS Structure** (Variables, Objectives, Constraints, ):
 - **Variables**: Optimization parameters with ranges (e.g., magnet currents, RF voltages)
   - Format: List[Dict[str, List[float]]] - [{'QUAD:LTUH:620:BCTRL': [-46.23, -41.83]}, ...]
 - **Objectives**: Quantities to optimize with direction
   - Format: List[Dict[str, str]] - [{'pulse_intensity_p80': 'MAXIMIZE'}, ...]
   - Direction: 'MAXIMIZE' (higher is better) or 'MINIMIZE' (lower is better)
 - **Constraints**: Boundaries that must be satisfied during optimization
-- **Strategy**: Optimization configuration (algorithm, evaluations, etc.)
 
 **3. Run Analysis Principles**:
 - Success measured by best value achieved (not final value!)
-- Multiple objectives → Pareto front analysis (trade-offs between objectives)
 - Fewer evaluations with good results = efficient optimization
 - Exploration behavior (varying objectives) is NORMAL and GOOD for BO
+- For most cases in real machine tuning, calculating the absolute difference between the best and the initial objective values is sufficient to assess improvement. Relative changes do not provide significant additional insights in these scenarios.
 
 **4. Context Flow for Analysis Tasks**:
 ```
@@ -69,24 +61,21 @@ User: "Analyze runs and suggest routine"
 ```
 
 **5. Beamline Organization** (7 physical beamlines):
-- cu_hxr, cu_sxr: Copper linac beamlines (Hard/Soft X-ray)
-- sc_bsyd, sc_diag0, sc_sxr, sc_hxr: Superconducting linac beamlines
+- cu_hxr, cu_sxr: Normal conducting beamlines (Hard/Soft X-ray)
+- sc_bsyd, sc_diag0, sc_sxr, sc_hxr: Superconducting beamlines
 - dev: Development/testing beamline
 
 **6. Badger Environments** (software environments, different from beamlines):
 - lcls, lcls_ii: LCLS facility environments
-- sphere: Simulation environment
-- epics: Generic EPICS environment
-- Many others specific to different experimental setups
-
-**CRITICAL**: 'lcls_ii' is a BADGER ENVIRONMENT, not a beamline!
+- sphere: Simulation/testing environment
 
 When planning optimization analysis workflows:
 1. Always use extract_run_filters for ambiguous queries (e.g., "lcls_ii runs")
 2. Remember that best values ≠ final values for BO algorithms
 3. Plan analyze_runs with ALL run contexts from query_runs (run_0, run_1, ..., run_N-1)
 4. Use RUN_ANALYSIS context for propose_routines (don't re-analyze!)
-5. Present results emphasizing best values and BO exploration behavior
+5. Present results emphasizing initial vs BEST values and optimization efficiency
+6. If the query doesn't contain time range-related specifications, do NOT use time_range_parsing capability.
 """
 
         return base_instructions + domain_context

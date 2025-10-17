@@ -13,20 +13,21 @@ class OtterResponseGenerationPromptBuilder(DefaultResponseGenerationPromptBuilde
     def get_role_definition(self) -> str:
         """Get the Otter-specific role definition."""
         return (
-            "You are an expert assistant for Badger optimization run analysis and routine generation. "
-            "You have deep knowledge of Bayesian Optimization algorithms, VOCS (Variables, Objectives, Constraints, Strategy), "
+            "You are an accelerator operator who has expertise as an assistant for Badger optimization run analysis and routine composition. "
+            "You have deep knowledge of Bayesian Optimization algorithms, VOCS (Variables, Objectives, Constraints), "
             "and particle accelerator optimization workflows."
         )
 
     def _get_conversational_guidelines(self) -> list[str]:
         """Otter-specific conversational guidelines with BO domain knowledge."""
         return [
+            "Be concise. ",
             "Be professional and technically accurate while staying accessible to accelerator scientists",
             "Answer questions about Badger optimization runs, algorithms, and VOCS naturally",
             "Respond to greetings and social interactions professionally",
             "Ask clarifying questions about optimization objectives or constraints when needed",
             "Provide helpful context about optimization behavior and algorithm characteristics",
-            "Be encouraging about successful optimizations and explain failures constructively"
+            "Be encouraging about successful optimizations and explain failures constructively",
         ]
 
     def _get_domain_guidelines(self) -> list[str]:
@@ -35,18 +36,14 @@ class OtterResponseGenerationPromptBuilder(DefaultResponseGenerationPromptBuilde
 
         These guidelines ensure correct interpretation of optimization run results.
         """
-        return [
-            "CRITICAL: For optimization runs, the BEST value achieved matters, NOT the final value",
-            "Bayesian Optimization algorithms (expected_improvement, MOBO, etc.) actively EXPLORE the search space",
-            "Exploration means the algorithm intentionally tries suboptimal points → final value often ISN'T the best",
-            "ALWAYS use min_objective_values for MINIMIZE objectives and max_objective_values for MAXIMIZE objectives",
-            "Use best_improvement_pct to evaluate run success, NOT final_improvement_pct",
-            "When objectives 'jump around' during a run, this is EXPECTED BO behavior (exploration vs exploitation)",
-            "Explain the difference between exploration (finding new regions) and exploitation (refining known good regions)",
-            "A successful BO run shows both exploration (trying new points) and exploitation (improving on good points)",
-            "Lower evaluations doesn't mean worse - efficient BO algorithms find optima with fewer evaluations",
-            "Peak performance can occur at any point during the run - convergence to that peak may happen later"
-        ]
+
+        guidelines = """
+BO algorithms (expected_improvement, upper_confidence_bound, MOBO, etc.) explore the search space, so:
+- Final objective value ≠ best objective value (exploration causes "jumping around")
+- Best value = max_objective_values for MAXIMIZE, min_objective_values for MINIMIZE
+- Success = improvement from initial to BEST, not initial to final
+"""
+        return [guidelines]
 
     def get_orchestrator_guide(self) -> Optional[OrchestratorGuide]:
         """Create Otter-specific orchestrator snippet for respond capability."""
@@ -59,12 +56,10 @@ class OtterResponseGenerationPromptBuilder(DefaultResponseGenerationPromptBuilde
                 task_objective="Respond to user about run analysis with algorithm performance and success patterns",
                 expected_output="user_response",
                 success_criteria="Complete response using RUN_ANALYSIS context data with best values emphasized",
-                inputs=[
-                    {registry.context_types.RUN_ANALYSIS: "run_analysis"}
-                ]
+                inputs=[{registry.context_types.RUN_ANALYSIS: "run_analysis"}],
             ),
             scenario_description="User asks for run analysis results",
-            notes="Will use RUN_ANALYSIS context with emphasis on best values and BO behavior."
+            notes="Will use RUN_ANALYSIS context with emphasis on best values and BO behavior.",
         )
 
         conversational_example = OrchestratorExample(
@@ -74,10 +69,10 @@ class OtterResponseGenerationPromptBuilder(DefaultResponseGenerationPromptBuilde
                 task_objective="Respond to user question about Badger capabilities",
                 expected_output="user_response",
                 success_criteria="Friendly, informative response about Otter assistant capabilities",
-                inputs=[]
+                inputs=[],
             ),
             scenario_description="Conversational query about what Otter can do",
-            notes="Applies to all conversational user queries with no clear task objective."
+            notes="Applies to all conversational user queries with no clear task objective.",
         )
 
         return OrchestratorGuide(
@@ -86,9 +81,10 @@ class OtterResponseGenerationPromptBuilder(DefaultResponseGenerationPromptBuilde
                 Automatically handles both technical queries (with context) and conversational queries (without context).
                 Use to provide the final response to the user's question with Badger optimization expertise.
                 Always required unless asking clarifying questions.
+                Be concise, professional, and accurate in your responses.
                 """,
             examples=[analysis_with_context_example, conversational_example],
-            priority=100  # Should come last in prompt ordering
+            priority=100,  # Should come last in prompt ordering
         )
 
     def get_classifier_guide(self) -> Optional[TaskClassifierGuide]:
@@ -102,7 +98,9 @@ class OtterResponseGenerationPromptBuilder(DefaultResponseGenerationPromptBuilde
         This adds critical guidance about interpreting optimization results correctly.
         """
         # Get base instructions
-        base_instructions = super().get_system_instructions(current_task=current_task, info=info, **kwargs)
+        base_instructions = super().get_system_instructions(
+            current_task=current_task, info=info, **kwargs
+        )
 
         # Add BO-specific guidance
         bo_guidance = """
