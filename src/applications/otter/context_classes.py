@@ -295,3 +295,232 @@ class BadgerRunContext(CapabilityContext):
             summary["tags"] = self.tags
 
         return summary
+
+
+class RunAnalysisContext(CapabilityContext):
+    """
+    Context for storing run analysis results from analyze_runs capability.
+
+    This flexible context stores statistical analysis and pattern identification
+    from multiple Badger optimization runs.
+    """
+
+    CONTEXT_TYPE: ClassVar[str] = "RUN_ANALYSIS"
+    CONTEXT_CATEGORY: ClassVar[str] = "COMPUTATIONAL_DATA"
+
+    analysis_data: Dict[str, Any] = Field(
+        description="Complete analysis results including algorithm performance, beamline distribution, "
+                    "objective analysis, and success patterns"
+    )
+
+    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """Rich description for LLM consumption."""
+        key_ref = key_name if key_name else "key_name"
+
+        # Extract key information for preview
+        overview = self.analysis_data.get("overview", {})
+        total_runs = overview.get("total_runs_analyzed", 0)
+
+        return {
+            "total_runs_analyzed": total_runs,
+            "available_sections": list(self.analysis_data.keys()),
+            "data_structure": "Dictionary with sections: overview, algorithm_performance, beamline_distribution, "
+                            "badger_environment_distribution, objective_analysis, success_patterns",
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.analysis_data['section_name']",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.analysis_data['algorithm_performance'] gives algorithm stats, "
+                           f"context.{self.CONTEXT_TYPE}.{key_ref}.analysis_data['success_patterns']['top_performers'] gives best runs",
+            "IMPORTANT_NOTES": [
+                "All analysis data is in .analysis_data dictionary",
+                "Use bracket notation for accessing sections",
+                "Success patterns include top performers with improvement percentages",
+                "Algorithm performance includes average improvement and evaluation counts"
+            ]
+        }
+
+    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        FOR HUMAN DISPLAY: Create readable summary for UI/response generation.
+        """
+        overview = self.analysis_data.get("overview", {})
+        algo_perf = self.analysis_data.get("algorithm_performance", {})
+        success_patterns = self.analysis_data.get("success_patterns", {})
+
+        # Format algorithm performance summary
+        algo_summary = {}
+        for algo, stats in algo_perf.items():
+            algo_summary[algo] = {
+                "runs": stats.get("num_runs", 0),
+                "avg_improvement": f"{stats.get('avg_improvement_pct', 0):.1f}%"
+            }
+
+        # Format top performers
+        top_performers = success_patterns.get("top_performers", [])[:3]
+
+        return {
+            "type": "Run Analysis Results",
+            "overview": overview,
+            "algorithm_summary": algo_summary,
+            "top_performers": top_performers,
+            "available_sections": list(self.analysis_data.keys())
+        }
+
+
+class RoutineProposalContext(CapabilityContext):
+    """
+    Context for storing routine proposals from propose_routines capability.
+
+    This context stores generated optimization routine proposals based on
+    historical successful runs.
+    """
+
+    CONTEXT_TYPE: ClassVar[str] = "ROUTINE_PROPOSAL"
+    CONTEXT_CATEGORY: ClassVar[str] = "COMPUTATIONAL_DATA"
+
+    proposal_data: Dict[str, Any] = Field(
+        description="Complete proposal data including multiple proposals, generation context, and usage notes"
+    )
+
+    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """Rich description for LLM consumption."""
+        key_ref = key_name if key_name else "key_name"
+
+        # Extract key information
+        num_proposals = self.proposal_data.get("num_proposals", 0)
+        proposals = self.proposal_data.get("proposals", [])
+
+        # Get first proposal as example
+        example_proposal = proposals[0] if proposals else {}
+
+        return {
+            "num_proposals": num_proposals,
+            "available_fields": list(self.proposal_data.keys()),
+            "data_structure": "Dictionary with: num_proposals (int), proposals (list of dicts), "
+                            "generation_context (dict), usage_notes (list)",
+            "proposal_structure": "Each proposal has: proposal_name, algorithm, beamline, badger_environment, "
+                                "estimated_evaluations, objectives (list), variables (list), "
+                                "justification, confidence, reference_runs (list)",
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.proposal_data['proposals'][0]['algorithm']",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.proposal_data['proposals'][0] gives first proposal, "
+                           f"context.{self.CONTEXT_TYPE}.{key_ref}.proposal_data['generation_context'] gives analysis context",
+            "IMPORTANT_NOTES": [
+                "All proposal data is in .proposal_data dictionary",
+                "proposals is a list - use indexing to access individual proposals",
+                "Each proposal includes justification and confidence level",
+                "generation_context provides information about how proposals were generated",
+                "reference_runs lists the successful runs each proposal is based on"
+            ]
+        }
+
+    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """
+        FOR HUMAN DISPLAY: Create readable summary for UI/response generation.
+        """
+        num_proposals = self.proposal_data.get("num_proposals", 0)
+        proposals = self.proposal_data.get("proposals", [])
+        gen_context = self.proposal_data.get("generation_context", {})
+
+        # Summarize each proposal
+        proposal_summaries = []
+        for proposal in proposals:
+            proposal_summaries.append({
+                "name": proposal.get("proposal_name", "Unknown"),
+                "algorithm": proposal.get("algorithm", "Unknown"),
+                "beamline": proposal.get("beamline", "Unknown"),
+                "environment": proposal.get("badger_environment", "Unknown"),
+                "evaluations": proposal.get("estimated_evaluations", 0),
+                "confidence": proposal.get("confidence", "unknown"),
+                "num_objectives": len(proposal.get("objectives", [])),
+                "num_variables": len(proposal.get("variables", []))
+            })
+
+        return {
+            "type": "Routine Proposals",
+            "num_proposals": num_proposals,
+            "proposals": proposal_summaries,
+            "generation_summary": {
+                "total_runs_analyzed": gen_context.get("total_runs_analyzed", 0),
+                "successful_runs_used": gen_context.get("successful_runs_used", 0)
+            }
+        }
+
+
+class RunQueryFilters(CapabilityContext):
+    """
+    Context for structured run query filters extracted from natural language.
+
+    This context stores parsed filter criteria for querying Badger runs,
+    ensuring correct interpretation of user queries (e.g., distinguishing
+    between beamline directories and Badger environment names).
+    """
+
+    CONTEXT_TYPE: ClassVar[str] = "RUN_QUERY_FILTERS"
+    CONTEXT_CATEGORY: ClassVar[str] = "METADATA"
+
+    num_runs: Optional[int] = Field(
+        default=None,
+        description="Number of runs to retrieve (None = use default)"
+    )
+    beamline: Optional[str] = Field(
+        default=None,
+        description="Beamline directory filter - ONLY these 7 values: cu_hxr, cu_sxr, sc_bsyd, sc_diag0, sc_sxr, sc_hxr, dev"
+    )
+    algorithm: Optional[str] = Field(
+        default=None,
+        description="Optimization algorithm filter (e.g., 'expected_improvement', 'neldermead', 'mobo', 'rcds')"
+    )
+    badger_environment: Optional[str] = Field(
+        default=None,
+        description="Badger software environment filter (e.g., 'lcls', 'lcls_ii', 'sphere')"
+    )
+    objective: Optional[str] = Field(
+        default=None,
+        description="Objective function name filter (e.g., 'pulse_intensity_p80')"
+    )
+
+    def to_parameters(self) -> Dict[str, Any]:
+        """
+        Convert filter context to query_runs parameters format.
+
+        Returns:
+            Dict with non-None filter values suitable for query_runs parameters
+        """
+        params = {}
+        if self.num_runs is not None:
+            params["num_runs"] = self.num_runs
+        if self.beamline is not None:
+            params["beamline"] = self.beamline
+        if self.algorithm is not None:
+            params["algorithm"] = self.algorithm
+        if self.badger_environment is not None:
+            params["badger_environment"] = self.badger_environment
+        if self.objective is not None:
+            params["objective"] = self.objective
+        return params
+
+    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """Rich description for LLM consumption."""
+        key_ref = key_name if key_name else "key_name"
+
+        active_filters = self.to_parameters()
+
+        return {
+            "active_filters": active_filters,
+            "num_filters": len(active_filters),
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.to_parameters()",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.to_parameters() returns {active_filters}",
+            "IMPORTANT_NOTES": [
+                "Use .to_parameters() method to get filter dict for query_runs",
+                "Only beamlines: cu_hxr, cu_sxr, sc_bsyd, sc_diag0, sc_sxr, sc_hxr, dev",
+                "Badger environments are separate from beamlines (e.g., 'lcls_ii' is environment, not beamline)"
+            ]
+        }
+
+    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """FOR HUMAN DISPLAY: Create readable summary."""
+        active_filters = self.to_parameters()
+
+        return {
+            "type": "Run Query Filters",
+            "filters": active_filters,
+            "filter_count": len(active_filters)
+        }

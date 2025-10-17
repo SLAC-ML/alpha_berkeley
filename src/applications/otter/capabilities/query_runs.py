@@ -109,14 +109,30 @@ class QueryRunsCapability(BaseCapability):
             if "objective" in step_parameters:
                 filter_params["objective"] = str(step_parameters["objective"])
 
-            # Extract time_range from inputs (optional - comes from TIME_RANGE context if provided)
+            # Check for RUN_QUERY_FILTERS in inputs (optional - comes from extract_run_filters if provided)
+            # This takes priority over step.parameters if both are present
             step_inputs = step.get("inputs", [])
+            from framework.context.context_manager import ContextManager
+            context_manager = ContextManager(state)
+
+            for input_item in step_inputs:
+                if "RUN_QUERY_FILTERS" in input_item:
+                    filter_key = input_item["RUN_QUERY_FILTERS"]
+                    filter_context = context_manager.get_context(
+                        registry.context_types.RUN_QUERY_FILTERS,
+                        filter_key
+                    )
+                    if filter_context:
+                        # Extract parameters and merge (filter context takes priority)
+                        extracted_params = filter_context.to_parameters()
+                        filter_params.update(extracted_params)
+                        logger.info(f"Using filters from RUN_QUERY_FILTERS context: {extracted_params}")
+                        break
+
+            # Extract time_range from inputs (optional - comes from TIME_RANGE context if provided)
             for input_item in step_inputs:
                 if "TIME_RANGE" in input_item:
                     time_range_key = input_item["TIME_RANGE"]
-                    # Get the TIME_RANGE context from state using ContextManager
-                    from framework.context.context_manager import ContextManager
-                    context_manager = ContextManager(state)
                     time_range_context = context_manager.get_context(
                         registry.context_types.TIME_RANGE,
                         time_range_key
@@ -187,6 +203,7 @@ class QueryRunsCapability(BaseCapability):
 
             # Load metadata for each run and create contexts
             updates = {}
+            num_loaded = 0  # Track successful loads
             for idx, run_path in enumerate(run_paths):
                 try:
                     streamer.status(f"Loading run {idx+1}/{len(run_paths)}: {Path(run_path).name}")
@@ -222,6 +239,7 @@ class QueryRunsCapability(BaseCapability):
                         context
                     ))
 
+                    num_loaded += 1  # Increment on successful load
                     logger.debug(f"Loaded run {idx}: {metadata['name']}")
 
                 except yaml.YAMLError as e:
@@ -232,17 +250,16 @@ class QueryRunsCapability(BaseCapability):
 
                 except Exception as e:
                     # Log error but continue with other runs
-                    logger.warning(f"Failed to load run {run_path}: {e}")
+                    logger.error(f"Failed to load run {run_path}: {e}", exc_info=True)
                     streamer.status(f"Failed to load: {Path(run_path).name}")
                     continue
 
-            if not updates:
+            if num_loaded == 0:
                 # All runs failed to load
                 streamer.status("Failed to load any runs")
                 logger.warning("All runs failed to load")
                 return {}
 
-            num_loaded = len([k for k in updates.keys() if k.startswith("context_BADGER_RUN")])
             streamer.status(f"Successfully loaded {num_loaded} runs")
             logger.success(f"Loaded {num_loaded} runs successfully")
 
@@ -420,13 +437,13 @@ class QueryRunsCapability(BaseCapability):
         # Example 7: Combined filters
         combined_example = OrchestratorExample(
             step=PlannedStep(
-                context_key="lcls_ii_neldermead_runs",
+                context_key="cu_hxr_neldermead_runs",
                 capability="query_runs",
-                task_objective="Get neldermead runs from lcls_ii beamline",
+                task_objective="Get neldermead runs from cu_hxr beamline",
                 expected_output=registry.context_types.BADGER_RUN,
-                success_criteria="Neldermead runs from lcls_ii loaded",
+                success_criteria="Neldermead runs from cu_hxr loaded",
                 inputs=[],
-                parameters={"beamline": "lcls_ii", "algorithm": "neldermead", "num_runs": 3}
+                parameters={"beamline": "cu_hxr", "algorithm": "neldermead", "num_runs": 3}
             ),
             scenario_description="User wants runs with multiple specific criteria",
             notes="Multiple filters are AND-ed together (all conditions must match)"
@@ -459,10 +476,16 @@ class QueryRunsCapability(BaseCapability):
                 **When to plan "query_runs" steps:**
                 - User asks about recent runs ("most recent run", "last 5 runs")
                 - User needs run information for analysis or comparison
-                - User asks about runs from a specific beamline (cu_hxr, lcls_ii, etc.)
+                - User asks about runs from a specific beamline (cu_hxr, sc_sxr, sc_hxr, cu_sxr, sc_bsyd, sc_diag0, dev)
                 - User asks about runs using a specific algorithm (expected_improvement, neldermead, etc.)
-                - User asks about runs from a Badger environment (lcls, sphere, etc.)
+                - User asks about runs from a Badger environment (lcls, lcls_ii, sphere, etc.)
                 - User asks about runs that optimized a specific objective
+
+                **CRITICAL: Beamline vs Badger Environment Distinction:**
+                - Beamlines (7 physical directories): cu_hxr, cu_sxr, sc_bsyd, sc_diag0, sc_sxr, sc_hxr, dev
+                - Badger Environments (software): lcls, lcls_ii, sphere, etc.
+                - 'lcls_ii' is a Badger ENVIRONMENT, NOT a beamline!
+                - Use extract_run_filters capability to disambiguate complex queries
 
                 **IMPORTANT: Two-step pattern for information extraction:**
                 When user asks for INFORMATION FROM runs (not just loading runs), use a 2-step plan:
@@ -494,14 +517,14 @@ class QueryRunsCapability(BaseCapability):
                 User query: "Show me runs from lcls environment"
                 → step["parameters"] = {{"badger_environment": "lcls", "num_runs": 5}}
 
-                User query: "Show me neldermead runs from lcls_ii"
-                → step["parameters"] = {{"beamline": "lcls_ii", "algorithm": "neldermead", "num_runs": 3}}
+                User query: "Show me neldermead runs from cu_hxr"
+                → step["parameters"] = {{"beamline": "cu_hxr", "algorithm": "neldermead", "num_runs": 3}}
 
                 **Available Parameters (all optional):**
                 - num_runs: int (number of runs to return, default=1 if not specified)
-                - beamline: str (beamline directory, e.g., "cu_hxr", "cu_sxr", "lcls_ii")
+                - beamline: str (ONLY these 7 beamlines: "cu_hxr", "cu_sxr", "sc_bsyd", "sc_diag0", "sc_sxr", "sc_hxr", "dev")
                 - algorithm: str (optimization algorithm, e.g., "expected_improvement", "neldermead", "mobo", "rcds")
-                - badger_environment: str (Badger environment, e.g., "lcls", "sphere")
+                - badger_environment: str (Badger software environment, e.g., "lcls", "lcls_ii", "sphere")
                 - objective: str (objective function name from VOCS, e.g., "pulse_intensity_p80")
 
                 **IMPORTANT:**
@@ -519,10 +542,24 @@ class QueryRunsCapability(BaseCapability):
                 - If no runs match filters, returns empty (not an error)
                 - Respond capability will inform user that no runs were found
 
+                **Time Range Filtering (ONLY when user explicitly mentions dates/times):**
+                - TIME_RANGE input is OPTIONAL and should ONLY be used when user explicitly mentions:
+                  * Specific dates: "runs from October 15th"
+                  * Date ranges: "runs between Oct 10 and Oct 15"
+                  * Relative dates: "runs from last week", "runs from past month"
+                - DO NOT use time_range_parsing for:
+                  * "recent runs" - use num_runs instead (e.g., num_runs=10)
+                  * "last 5 runs" - use num_runs=5
+                  * "most recent run" - use num_runs=1
+                - The num_runs parameter already sorts by date (newest first), so time filtering is usually unnecessary
+                - Example WITHOUT time range: "last 3 runs" → parameters={{"num_runs": 3}} (no time_range_parsing needed)
+                - Example WITH time range: "runs from last week" → Step 1: time_range_parsing, Step 2: query_runs with TIME_RANGE input
+
                 **Dependencies and sequencing:**
                 - This is typically the first step in run analysis workflows
                 - Results can feed into analysis, comparison, or routine composition steps
-                - No input dependencies (works standalone)
+                - Optional inputs: TIME_RANGE (only when user mentions specific dates/times), RUN_QUERY_FILTERS (from extract_run_filters)
+                - Can work standalone with just parameters (no inputs needed)
                 """).strip(),
             examples=[
                 most_recent_example,
@@ -567,7 +604,7 @@ class QueryRunsCapability(BaseCapability):
                 ClassifierExample(
                     query="Show me runs from lcls_ii",
                     result=True,
-                    reason="Beamline-specific run query (lcls_ii is a beamline directory)."
+                    reason="Badger environment-specific run query (lcls_ii is a Badger environment)."
                 ),
                 ClassifierExample(
                     query="Show me runs that used expected_improvement",
