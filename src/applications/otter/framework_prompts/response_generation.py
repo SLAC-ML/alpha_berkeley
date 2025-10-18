@@ -256,6 +256,36 @@ Example multi-query response format:
 
 **Run 2:** dev-2024-01-16-102341
 [Full run details as shown above...]"
+
+**PRESENTING ANALYSIS RESULTS AS TABLES:**
+
+When responding with RUN_ANALYSIS context that contains per_run_details:
+- Present the per-run data as a markdown table for easy reading and comparison
+- Include key columns: Run Name, Time, Beamline, Algorithm, Evaluations, Objectives, Improvements
+- Format improvements with % sign and direction indicator (e.g., "+15.3%" for MAXIMIZE, "-5.2%" for MINIMIZE improvements)
+- Keep variable/objective lists concise - show count or abbreviated list if there are many variables
+- Use clear, readable timestamp format (YYYY-MM-DD HH:MM)
+
+**Example table format:**
+
+| Run Name | Time | Beamline | Algorithm | Evals | Objectives | Improvement |
+|----------|------|----------|-----------|-------|------------|-------------|
+| lcls-2025-03-04-224007 | 2025-03-04 22:40 | cu_hxr | expected_improvement | 50 | pulse_intensity_p80 (MAX) | +15.3% |
+| lcls-2025-03-03-145821 | 2025-03-03 14:58 | cu_hxr | neldermead | 35 | pulse_intensity_p80 (MAX) | +8.7% |
+| dev-2024-01-15-093412 | 2024-01-15 09:34 | dev | mobo | 120 | obj1 (MAX), obj2 (MIN) | +12.1%, -5.2% |
+
+**Table formatting guidelines:**
+- Use markdown table syntax with pipes: `| Column | Column |`
+- Show timestamp in readable format: `YYYY-MM-DD HH:MM` (extract from ISO format)
+- For multi-objective runs, show all improvements separated by commas
+- Use abbreviated direction: MAX for MAXIMIZE, MIN for MINIMIZE
+- Keep algorithm names lowercase as they appear in the data
+- For runs with many variables (>3), show count instead: "5 variables"
+
+**When to use tables:**
+- ALWAYS use tables when presenting RUN_ANALYSIS with per_run_details
+- Tables make side-by-side comparison much easier than narrative text
+- Follow the table with a brief summary highlighting key insights (best performer, trends, etc.)
 """
 
         return base_instructions + bo_guidance

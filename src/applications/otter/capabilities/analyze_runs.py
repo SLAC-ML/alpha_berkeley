@@ -275,6 +275,60 @@ class AnalyzeRunsCapability(BaseCapability):
             }
 
             # ====================
+            # Section 6: Per-Run Details Table
+            # ====================
+            streamer.status("Compiling per-run details for table format...")
+
+            per_run_details = {}
+            for run in run_contexts:
+                # Use run_filename as unique key
+                run_key = run.run_filename
+
+                # Extract variable names from List[Dict[str, List[float]]]
+                variable_names = []
+                for var_dict in run.variables:
+                    variable_names.extend(var_dict.keys())
+
+                # Extract objectives with directions from List[Dict[str, str]]
+                objectives_dict = {}
+                for obj_dict in run.objectives:
+                    objectives_dict.update(obj_dict)  # Merge all objective dicts
+
+                # Calculate improvements per objective (initial → BEST values)
+                improvements = {}
+                if run.initial_objective_values:
+                    for obj_name in objectives_dict.keys():
+                        direction = objectives_dict[obj_name]
+                        initial = run.initial_objective_values.get(obj_name)
+
+                        # Use BEST values (not final) per BO domain knowledge
+                        if direction == 'MAXIMIZE':
+                            best = run.max_objective_values.get(obj_name) if run.max_objective_values else run.final_objective_values.get(obj_name)
+                        else:  # MINIMIZE
+                            best = run.min_objective_values.get(obj_name) if run.min_objective_values else run.final_objective_values.get(obj_name)
+
+                        if initial is not None and best is not None and initial != 0:
+                            if direction == 'MAXIMIZE':
+                                improvement_pct = ((best - initial) / abs(initial)) * 100
+                            else:  # MINIMIZE
+                                improvement_pct = ((initial - best) / abs(initial)) * 100
+                            improvements[obj_name] = round(improvement_pct, 2)
+
+                # Build per-run entry
+                per_run_details[run_key] = {
+                    "run_name": run.run_name,
+                    "timestamp": run.timestamp.isoformat(),
+                    "beamline": run.beamline,
+                    "badger_environment": run.badger_environment,
+                    "algorithm": run.algorithm,
+                    "num_evaluations": run.num_evaluations,
+                    "variables": variable_names,
+                    "objectives": objectives_dict,  # {obj_name: direction}
+                    "constraints": run.constraints if run.constraints else [],
+                    "improvements": improvements,  # {obj_name: improvement_pct}
+                }
+
+            # ====================
             # Build Final Analysis Summary
             # ====================
             streamer.status("Compiling analysis results...")
@@ -298,7 +352,8 @@ class AnalyzeRunsCapability(BaseCapability):
                     "top_algorithms": dict(success_patterns["top_algorithms"]),
                     "top_beamlines": dict(success_patterns["top_beamlines"]),
                     "top_performers": success_patterns["top_performers"][:5]  # Limit to top 5
-                }
+                },
+                "per_run_details": per_run_details  # New: structured per-run data for tables
             }
 
             streamer.status(f"Analysis complete! Analyzed {total_runs} runs.")

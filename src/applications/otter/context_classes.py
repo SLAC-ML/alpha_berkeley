@@ -413,6 +413,7 @@ class RunAnalysisContext(CapabilityContext):
         overview = self.analysis_data.get("overview", {})
         algo_perf = self.analysis_data.get("algorithm_performance", {})
         success_patterns = self.analysis_data.get("success_patterns", {})
+        per_run_details = self.analysis_data.get("per_run_details", {})
 
         # Format algorithm performance summary
         algo_summary = {}
@@ -430,6 +431,7 @@ class RunAnalysisContext(CapabilityContext):
             "overview": overview,
             "algorithm_summary": algo_summary,
             "top_performers": top_performers,
+            "per_run_details": per_run_details,  # Include full per-run data for table formatting
             "available_sections": list(self.analysis_data.keys())
         }
 
