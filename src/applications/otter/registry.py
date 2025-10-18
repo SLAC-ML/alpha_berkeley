@@ -43,9 +43,9 @@ class OtterRegistryProvider(RegistryConfigProvider):
                     name="query_runs",
                     module_path="applications.otter.capabilities.query_runs",
                     class_name="QueryRunsCapability",
-                    description="Query Badger optimization runs from archive with time and count filters",
-                    provides=["BADGER_RUN"],
-                    requires=[]
+                    description="Query Badger optimization runs from archive using filters from extract_run_filters",
+                    provides=["BADGER_RUNS"],  # Returns container with multiple runs
+                    requires=["RUN_QUERY_FILTERS"]
                 ),
                 CapabilityRegistration(
                     name="analyze_runs",
@@ -53,7 +53,7 @@ class OtterRegistryProvider(RegistryConfigProvider):
                     class_name="AnalyzeRunsCapability",
                     description="Analyze and compare multiple runs",
                     provides=["RUN_ANALYSIS"],
-                    requires=["BADGER_RUN"]
+                    requires=["BADGER_RUNS"]  # Updated to use BADGER_RUNS container
                 ),
                 # TODO: propose_routines capability needs rework - disabled for now
                 # The current implementation doesn't properly generate actionable routines
@@ -87,6 +87,11 @@ class OtterRegistryProvider(RegistryConfigProvider):
                     context_type="BADGER_RUN",
                     module_path="applications.otter.context_classes",
                     class_name="BadgerRunContext"
+                ),
+                ContextClassRegistration(
+                    context_type="BADGER_RUNS",
+                    module_path="applications.otter.context_classes",
+                    class_name="BadgerRunsContext"
                 ),
                 ContextClassRegistration(
                     context_type="RUN_ANALYSIS",

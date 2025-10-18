@@ -137,7 +137,7 @@ When analyzing optimization runs or presenting results, you MUST understand and 
 
 5. **Presenting Results**:
    - Emphasize best values achieved, not final values
-   - Explain exploration behavior if user seems confused about "jumping around"
+   - BRIEFLY explain exploration behavior if user seems confused about "jumping around"
    - Use domain terminology: convergence, exploration, exploitation, Pareto front
    - Acknowledge successful exploration even if final value regressed
 
@@ -185,7 +185,7 @@ When presenting Badger optimization runs to users, ALWAYS include these elements
 6. **Emphasis on Initial vs BEST Values**:
    - Always present: "Initial value: X, Best value: Y (Z% improvement)"
    - Explain improvement percentage clearly
-   - If final value differs from best, acknowledge and explain BO exploration
+   - If final value differs from best, acknowledge and BRIEFLY explain BO exploration
 
 **Example Presentation Format:**
 

@@ -297,6 +297,75 @@ class BadgerRunContext(CapabilityContext):
         return summary
 
 
+class BadgerRunsContext(CapabilityContext):
+    """
+    Container context for multiple Badger optimization runs from query_runs capability.
+
+    This context stores a collection of BadgerRunContext objects, following the same
+    pattern as PVValues in ALS assistant (container holding multiple items).
+    """
+
+    CONTEXT_TYPE: ClassVar[str] = "BADGER_RUNS"
+    CONTEXT_CATEGORY: ClassVar[str] = "OPTIMIZATION_DATA"
+
+    runs: list[BadgerRunContext] = Field(
+        description="List of Badger run contexts"
+    )
+
+    @property
+    def run_count(self) -> int:
+        """Number of runs in this collection."""
+        return len(self.runs)
+
+    def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """Rich description for LLM consumption."""
+        key_ref = key_name if key_name else "key_name"
+
+        # Preview first few runs
+        preview_count = min(3, len(self.runs))
+        preview_runs = [
+            {
+                "run_name": run.run_name,
+                "timestamp": run.timestamp.isoformat(),
+                "algorithm": run.algorithm,
+                "beamline": run.beamline,
+            }
+            for run in self.runs[:preview_count]
+        ]
+
+        return {
+            "run_count": self.run_count,
+            "preview": preview_runs,
+            "data_structure": "List[BadgerRunContext] - access individual runs via indexing",
+            "access_pattern": f"context.{self.CONTEXT_TYPE}.{key_ref}.runs[index]",
+            "example_usage": f"context.{self.CONTEXT_TYPE}.{key_ref}.runs[0].algorithm gives first run's algorithm, "
+                           f"context.{self.CONTEXT_TYPE}.{key_ref}.run_count gives total number of runs",
+            "iteration": f"Use 'for run in context.{self.CONTEXT_TYPE}.{key_ref}.runs' to iterate over all runs",
+            "IMPORTANT_NOTES": [
+                "This is a container holding multiple BadgerRunContext objects",
+                "Access individual runs via .runs[index] - zero-indexed",
+                "Each run has full metadata: algorithm, variables, objectives, etc.",
+                "Use .run_count property to get total number of runs",
+            ]
+        }
+
+    def get_summary(self, key_name: Optional[str] = None) -> Dict[str, Any]:
+        """FOR HUMAN DISPLAY: Create readable summary with full run details."""
+        runs_summary = []
+        for idx, run in enumerate(self.runs):
+            # Get full summary from each run's get_summary() method
+            run_summary = run.get_summary()
+            # Add index for reference
+            run_summary["index"] = idx
+            runs_summary.append(run_summary)
+
+        return {
+            "type": "Badger Runs Collection",
+            "run_count": self.run_count,
+            "runs": runs_summary,
+        }
+
+
 class RunAnalysisContext(CapabilityContext):
     """
     Context for storing run analysis results from analyze_runs capability.
@@ -476,6 +545,10 @@ class RunQueryFilters(CapabilityContext):
         default=None,
         description="Objective function name filter (e.g., 'pulse_intensity_p80')"
     )
+    sort_order: Optional[str] = Field(
+        default="newest_first",
+        description="Sort order for results - 'newest_first' (default) or 'oldest_first'"
+    )
 
     def to_parameters(self) -> Dict[str, Any]:
         """
@@ -495,6 +568,8 @@ class RunQueryFilters(CapabilityContext):
             params["badger_environment"] = self.badger_environment
         if self.objective is not None:
             params["objective"] = self.objective
+        if self.sort_order is not None:
+            params["sort_order"] = self.sort_order
         return params
 
     def get_access_details(self, key_name: Optional[str] = None) -> Dict[str, Any]:
@@ -511,7 +586,8 @@ class RunQueryFilters(CapabilityContext):
             "IMPORTANT_NOTES": [
                 "Use .to_parameters() method to get filter dict for query_runs",
                 "Only beamlines: cu_hxr, cu_sxr, sc_bsyd, sc_diag0, sc_sxr, sc_hxr, dev",
-                "Badger environments are separate from beamlines (e.g., 'lcls_ii' is environment, not beamline)"
+                "Badger environments are separate from beamlines (e.g., 'lcls_ii' is environment, not beamline)",
+                "sort_order can be 'newest_first' (default) or 'oldest_first'"
             ]
         }
 

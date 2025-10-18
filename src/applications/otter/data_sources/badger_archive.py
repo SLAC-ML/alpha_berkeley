@@ -264,10 +264,11 @@ class BadgerArchiveDataSource:
         beamline: Optional[str] = None,
         algorithm: Optional[str] = None,
         badger_environment: Optional[str] = None,
-        objective: Optional[str] = None
+        objective: Optional[str] = None,
+        sort_order: str = "newest_first"
     ) -> List[str]:
         """
-        List run filenames matching filters, sorted by run timestamp (newest first).
+        List run filenames matching filters, sorted by run timestamp.
 
         Uses cached index for instant filtering. All filters are applied in-memory.
 
@@ -278,6 +279,7 @@ class BadgerArchiveDataSource:
             algorithm: Optional algorithm/generator name filter (e.g., 'expected_improvement', 'neldermead')
             badger_environment: Optional Badger environment name filter (e.g., 'lcls', 'sphere')
             objective: Optional objective name filter (e.g., 'pulse_intensity_p80')
+            sort_order: Sort order - 'newest_first' (default) or 'oldest_first'
 
         Returns:
             List of relative paths from archive root
@@ -290,7 +292,7 @@ class BadgerArchiveDataSource:
             logger.error("Index not loaded, cannot list runs")
             return []
 
-        # Start with all runs (already sorted by timestamp newest first)
+        # Start with all runs (already sorted by timestamp newest first in index)
         matching_runs = self.index["runs"]
 
         # Apply time range filter
@@ -323,14 +325,20 @@ class BadgerArchiveDataSource:
                 if any(objective in obj_dict for obj_dict in r["objectives"])
             ]
 
-        # Apply limit (already sorted by timestamp newest first)
+        # Apply sorting based on sort_order
+        if sort_order == "oldest_first":
+            # Reverse the order (index is newest_first by default)
+            matching_runs = list(reversed(matching_runs))
+        # else: sort_order == "newest_first" is already the default order from index
+
+        # Apply limit after sorting
         if limit is not None:
             matching_runs = matching_runs[:limit]
 
         # Extract just the file paths
         run_paths = [r["run_filename"] for r in matching_runs]
 
-        logger.info(f"Found {len(run_paths)} runs matching filters")
+        logger.info(f"Found {len(run_paths)} runs matching filters (sort_order={sort_order})")
         return run_paths
 
     def load_run_metadata(self, run_path: str) -> Dict[str, Any]:

@@ -54,8 +54,9 @@ When planning workflows for Badger optimization analysis, understand these key c
 **4. Context Flow for Analysis Tasks**:
 ```
 User: "Analyze runs and suggest routine"
-→ query_runs: Load runs → BADGER_RUN contexts (run_0, run_1, ...)
-→ analyze_runs: Analyze BADGER_RUN contexts → RUN_ANALYSIS context
+→ extract_run_filters: Parse query → RUN_QUERY_FILTERS context
+→ query_runs: Load runs → BADGER_RUNS context (container with .runs list)
+→ analyze_runs: Analyze BADGER_RUNS → RUN_ANALYSIS context
 → propose_routines: Use RUN_ANALYSIS → ROUTINE_PROPOSAL context
 → respond: Present results using contexts
 ```
@@ -70,9 +71,9 @@ User: "Analyze runs and suggest routine"
 - sphere: Simulation/testing environment
 
 When planning optimization analysis workflows:
-1. Always use extract_run_filters for ambiguous queries (e.g., "lcls_ii runs")
+1. Always use extract_run_filters before query_runs for ALL run queries
 2. Remember that best values ≠ final values for BO algorithms
-3. Plan analyze_runs with ALL run contexts from query_runs (run_0, run_1, ..., run_N-1)
+3. query_runs returns a BADGER_RUNS container - pass this to analyze_runs as input
 4. Use RUN_ANALYSIS context for subsequent analysis steps (don't re-analyze!)
 5. If the query doesn't contain time range-related specifications, do NOT use time_range_parsing capability.
 """

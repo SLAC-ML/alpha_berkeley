@@ -62,27 +62,28 @@ async def test_capability_with_filter():
         print(f"\n📊 Result Summary:")
         print(f"  Keys in result: {list(result.keys())}")
 
-        # Count BADGER_RUN contexts
-        badger_run_keys = [k for k in result.keys() if "BADGER_RUN" in k]
-        print(f"  BADGER_RUN contexts created: {len(badger_run_keys)}")
+        # Count BADGER_RUNS contexts (should be 1 container)
+        badger_runs_keys = [k for k in result.keys() if "BADGER_RUNS" in k]
+        print(f"  BADGER_RUNS contexts created: {len(badger_runs_keys)}")
 
-        # Show first run details
-        if badger_run_keys:
-            first_key = badger_run_keys[0]
-            first_context_dict = result[first_key]
-            print(f"\n📄 First Run Details (from {first_key}):")
+        # Show container details
+        if badger_runs_keys:
+            first_key = badger_runs_keys[0]
+            runs_container = result[first_key][list(result[first_key].keys())[0]]
+            print(f"\n📄 BADGER_RUNS Container Details:")
+            print(f"    Total runs in container: {runs_container.run_count}")
 
-            # Extract run contexts (they're nested under keys like run_0, run_1, etc.)
-            for sub_key, context in first_context_dict.items():
-                if hasattr(context, 'run_name'):
-                    print(f"    Run Name: {context.run_name}")
-                    print(f"    Beamline: {context.beamline}")
-                    print(f"    Badger Environment: {context.badger_environment}")
-                    print(f"    Algorithm: {context.algorithm}")
-                    print(f"    Variables: {len(context.variables)}")
-                    print(f"    Objectives: {len(context.objectives)}")
-                    print(f"    Evaluations: {context.num_evaluations}")
-                    break
+            # Show first run from container
+            if runs_container.runs:
+                first_run = runs_container.runs[0]
+                print(f"\n📄 First Run Details:")
+                print(f"    Run Name: {first_run.run_name}")
+                print(f"    Beamline: {first_run.beamline}")
+                print(f"    Badger Environment: {first_run.badger_environment}")
+                print(f"    Algorithm: {first_run.algorithm}")
+                print(f"    Variables: {len(first_run.variables)}")
+                print(f"    Objectives: {len(first_run.objectives)}")
+                print(f"    Evaluations: {first_run.num_evaluations}")
 
         return True
 

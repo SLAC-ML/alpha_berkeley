@@ -16,8 +16,11 @@ from framework.base.decorators import capability_node
 from framework.base.capability import BaseCapability
 from framework.base.errors import ErrorClassification, ErrorSeverity
 from framework.base.examples import (
-    OrchestratorGuide, OrchestratorExample,
-    TaskClassifierGuide, ClassifierExample, ClassifierActions
+    OrchestratorGuide,
+    OrchestratorExample,
+    TaskClassifierGuide,
+    ClassifierExample,
+    ClassifierActions,
 )
 from framework.base.planning import PlannedStep
 from framework.state import AgentState, StateManager
@@ -27,7 +30,7 @@ from configs.streaming import get_streamer
 from configs.config import get_config_value
 
 # Application imports
-from applications.otter.context_classes import BadgerRunContext
+from applications.otter.context_classes import BadgerRunContext, BadgerRunsContext
 from applications.otter.data_sources.badger_archive import BadgerArchiveDataSource
 
 logger = get_logger("otter", "query_runs")
@@ -38,18 +41,22 @@ registry = get_registry()
 # Custom Exceptions
 # ====================
 
+
 class QueryRunsError(Exception):
     """Base class for query runs errors."""
+
     pass
 
 
 class ArchiveAccessError(QueryRunsError):
     """Raised when archive cannot be accessed."""
+
     pass
 
 
 class RunLoadError(QueryRunsError):
     """Raised when run file cannot be loaded."""
+
     pass
 
 
@@ -57,98 +64,75 @@ class RunLoadError(QueryRunsError):
 # Capability Definition
 # ====================
 
+
 @capability_node
 class QueryRunsCapability(BaseCapability):
     """
-    Query Badger optimization runs from archive.
+    Query Badger optimization runs from archive using filters from RUN_QUERY_FILTERS context.
 
-    The orchestrator should use LLM to parse natural language queries into structured
-    filters and include them in the step definition:
+    This capability requires the extract_run_filters capability to run first, which parses
+    natural language queries into structured filter criteria and creates a RUN_QUERY_FILTERS context.
 
-    step["filter"] = {
-        "time_range": {"start": "2025-01-01", "end": "2025-12-31"},  # Optional
-        "num_runs": 5,  # Optional, None = all matching
-        "environment": "cu_hxr"  # Optional
-    }
+    Two-step pattern:
+    1. extract_run_filters: Parse query → create RUN_QUERY_FILTERS context
+    2. query_runs: Use RUN_QUERY_FILTERS → load BADGER_RUNS context (container with all runs)
 
-    Returns multiple BADGER_RUN contexts (one per matching run).
+    Returns a single BADGER_RUNS context containing a list of BadgerRunContext objects.
     """
 
     name = "query_runs"
-    description = "Query Badger optimization runs from archive with time and count filters"
-    provides = ["BADGER_RUN"]
-    requires = []  # No hard requirements; TIME_RANGE is optional input if provided
+    description = "Query Badger optimization runs from archive using filters from RUN_QUERY_FILTERS context"
+    provides = ["BADGER_RUNS"]  # Provides a container with multiple runs
+    requires = ["RUN_QUERY_FILTERS"]  # Hard requirement: must have filters from extract_run_filters
 
     @staticmethod
     async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
-        """Execute run query with structured filters from orchestrator."""
+        """Execute run query with structured filters from RUN_QUERY_FILTERS context."""
 
         step = StateManager.get_current_step(state)
         streamer = get_streamer("otter", "query_runs", state)
 
         try:
-            # Get filter parameters from step.parameters (orchestrator puts them there)
-            # Parameters is Dict[str, Union[str, int, float]] so extract filter values
-            step_parameters = step.get("parameters", {})
-
-            # Debug: Log the step to see what orchestrator provided
-            logger.info(f"Current step: {step}")
-            logger.info(f"Step parameters: {step_parameters}")
-
-            # Extract filter parameters from step.parameters
-            # Orchestrator should provide: parameters={"num_runs": 1} or parameters={"beamline": "lcls_ii"}
-            filter_params = {}
-            if "num_runs" in step_parameters:
-                filter_params["num_runs"] = int(step_parameters["num_runs"])
-            if "beamline" in step_parameters:
-                filter_params["beamline"] = str(step_parameters["beamline"])
-            if "algorithm" in step_parameters:
-                filter_params["algorithm"] = str(step_parameters["algorithm"])
-            if "badger_environment" in step_parameters:
-                filter_params["badger_environment"] = str(step_parameters["badger_environment"])
-            if "objective" in step_parameters:
-                filter_params["objective"] = str(step_parameters["objective"])
-
-            # Check for RUN_QUERY_FILTERS in inputs (optional - comes from extract_run_filters if provided)
-            # This takes priority over step.parameters if both are present
-            step_inputs = step.get("inputs", [])
+            # Extract required RUN_QUERY_FILTERS context using ContextManager
             from framework.context.context_manager import ContextManager
+
             context_manager = ContextManager(state)
 
-            for input_item in step_inputs:
-                if "RUN_QUERY_FILTERS" in input_item:
-                    filter_key = input_item["RUN_QUERY_FILTERS"]
-                    filter_context = context_manager.get_context(
-                        registry.context_types.RUN_QUERY_FILTERS,
-                        filter_key
-                    )
-                    if filter_context:
-                        # Extract parameters and merge (filter context takes priority)
-                        extracted_params = filter_context.to_parameters()
-                        filter_params.update(extracted_params)
-                        logger.info(f"Using filters from RUN_QUERY_FILTERS context: {extracted_params}")
-                        break
+            # RUN_QUERY_FILTERS is now a hard requirement
+            try:
+                contexts = context_manager.extract_from_step(
+                    step, state,
+                    constraints=["RUN_QUERY_FILTERS"],
+                    constraint_mode="hard"
+                )
+                filter_context = contexts[registry.context_types.RUN_QUERY_FILTERS]
+            except ValueError as e:
+                raise QueryRunsError(f"Missing required RUN_QUERY_FILTERS context: {e}") from e
 
-            # Extract time_range from inputs (optional - comes from TIME_RANGE context if provided)
+            # Extract parameters from filter context
+            filter_params = filter_context.to_parameters()
+            logger.info(f"Using filters from RUN_QUERY_FILTERS context: {filter_params}")
+
+            # Extract optional TIME_RANGE from inputs (if provided)
+            step_inputs = step.get("inputs", [])
             for input_item in step_inputs:
                 if "TIME_RANGE" in input_item:
                     time_range_key = input_item["TIME_RANGE"]
                     time_range_context = context_manager.get_context(
-                        registry.context_types.TIME_RANGE,
-                        time_range_key
+                        registry.context_types.TIME_RANGE, time_range_key
                     )
                     if time_range_context:
                         # Convert to format expected by data source
                         filter_params["time_range"] = {
                             "start": time_range_context.start_date.isoformat(),
-                            "end": time_range_context.end_date.isoformat()
+                            "end": time_range_context.end_date.isoformat(),
                         }
                         logger.info(f"Applied time range filter: {filter_params['time_range']}")
                         break
 
-            # Safety default: if no filter provided, default to 1 run to avoid loading all runs
-            if not filter_params or "num_runs" not in filter_params:
-                logger.warning("No num_runs in parameters, defaulting to num_runs=1")
+            # Safety default: if no num_runs specified, default to 1 run to avoid loading all runs
+            if "num_runs" not in filter_params or filter_params["num_runs"] is None:
+                logger.warning("No num_runs in filters, defaulting to num_runs=1")
                 filter_params["num_runs"] = 1
 
             if filter_params:
@@ -158,7 +142,9 @@ class QueryRunsCapability(BaseCapability):
 
             # Load archive root from config
             # Config path: applications.otter.external_services.badger.archive_root
-            archive_root = get_config_value("applications.otter.external_services.badger.archive_root")
+            archive_root = get_config_value(
+                "applications.otter.external_services.badger.archive_root"
+            )
             if not archive_root:
                 raise ArchiveAccessError(
                     "Archive root not configured. Please set OTTER_BADGER_ARCHIVE environment variable."
@@ -168,16 +154,16 @@ class QueryRunsCapability(BaseCapability):
             def progress_callback(current: int, total: int, path: str):
                 """Progress callback for index building - start and end messages only"""
                 if path == "start":
-                    streamer.status(f"Building index for {total} run files (this may take a few minutes)...")
+                    streamer.status(
+                        f"Building index for {total} run files (this may take a few minutes)..."
+                    )
                 elif path == "complete":
                     streamer.status(f"✅ Archive index built! ({total} runs indexed)")
 
             # Initialize data source with progress callback
             try:
                 data_source = BadgerArchiveDataSource(
-                    archive_root,
-                    use_cache=True,
-                    progress_callback=progress_callback
+                    archive_root, use_cache=True, progress_callback=progress_callback
                 )
             except (FileNotFoundError, NotADirectoryError) as e:
                 raise ArchiveAccessError(str(e))
@@ -189,7 +175,8 @@ class QueryRunsCapability(BaseCapability):
                 beamline=filter_params.get("beamline"),
                 algorithm=filter_params.get("algorithm"),
                 badger_environment=filter_params.get("badger_environment"),
-                objective=filter_params.get("objective")
+                objective=filter_params.get("objective"),
+                sort_order=filter_params.get("sort_order", "newest_first"),
             )
 
             if not run_paths:
@@ -201,9 +188,9 @@ class QueryRunsCapability(BaseCapability):
             streamer.status(f"Found {len(run_paths)} matching runs, loading metadata...")
             logger.info(f"Found {len(run_paths)} runs matching filters")
 
-            # Load metadata for each run and create contexts
-            updates = {}
-            num_loaded = 0  # Track successful loads
+            # Load metadata for each run and collect in a list
+            loaded_runs = []
+
             for idx, run_path in enumerate(run_paths):
                 try:
                     streamer.status(f"Loading run {idx+1}/{len(run_paths)}: {Path(run_path).name}")
@@ -211,7 +198,7 @@ class QueryRunsCapability(BaseCapability):
                     metadata = data_source.load_run_metadata(run_path)
 
                     # Create BadgerRunContext with Badger-native VOCS format
-                    context = BadgerRunContext(
+                    run_context = BadgerRunContext(
                         run_filename=run_path,
                         run_name=metadata["name"],
                         timestamp=metadata["timestamp"],
@@ -227,19 +214,10 @@ class QueryRunsCapability(BaseCapability):
                         max_objective_values=metadata.get("max_values"),
                         final_objective_values=metadata.get("final_values"),
                         description=metadata.get("description", ""),
-                        tags=metadata.get("tags")
+                        tags=metadata.get("tags"),
                     )
 
-                    # Store with unique key
-                    context_key = f"run_{idx}"
-                    updates.update(StateManager.store_context(
-                        state,
-                        registry.context_types.BADGER_RUN,
-                        context_key,
-                        context
-                    ))
-
-                    num_loaded += 1  # Increment on successful load
+                    loaded_runs.append(run_context)
                     logger.debug(f"Loaded run {idx}: {metadata['name']}")
 
                 except yaml.YAMLError as e:
@@ -254,16 +232,27 @@ class QueryRunsCapability(BaseCapability):
                     streamer.status(f"Failed to load: {Path(run_path).name}")
                     continue
 
-            if num_loaded == 0:
+            if not loaded_runs:
                 # All runs failed to load
                 streamer.status("Failed to load any runs")
                 logger.warning("All runs failed to load")
                 return {}
 
-            streamer.status(f"Successfully loaded {num_loaded} runs")
-            logger.success(f"Loaded {num_loaded} runs successfully")
+            # Create container context with all loaded runs
+            runs_container = BadgerRunsContext(runs=loaded_runs)
 
-            return updates
+            streamer.status(f"Successfully loaded {runs_container.run_count} runs")
+            logger.success(f"Loaded {runs_container.run_count} runs successfully")
+
+            # Store single container context under step's context_key
+            context_updates = StateManager.store_context(
+                state,
+                registry.context_types.BADGER_RUNS,
+                step.get("context_key"),
+                runs_container
+            )
+
+            return context_updates
 
         except ArchiveAccessError as e:
             logger.error(f"Archive access error: {e}")
@@ -287,8 +276,8 @@ class QueryRunsCapability(BaseCapability):
                 user_message=f"Badger archive not accessible: {str(exc)}",
                 metadata={
                     "technical_details": str(exc),
-                    "resolution": "Check OTTER_BADGER_ARCHIVE environment variable and archive path"
-                }
+                    "resolution": "Check OTTER_BADGER_ARCHIVE environment variable and archive path",
+                },
             )
 
         elif isinstance(exc, yaml.YAMLError):
@@ -297,8 +286,8 @@ class QueryRunsCapability(BaseCapability):
                 user_message=f"Encountered corrupt run file: {str(exc)}",
                 metadata={
                     "technical_details": str(exc),
-                    "resolution": "Run file may be corrupted - trying other runs"
-                }
+                    "resolution": "Run file may be corrupted - trying other runs",
+                },
             )
 
         elif isinstance(exc, FileNotFoundError):
@@ -307,8 +296,8 @@ class QueryRunsCapability(BaseCapability):
                 user_message=f"Archive or run file not found: {str(exc)}",
                 metadata={
                     "technical_details": str(exc),
-                    "resolution": "Verify archive path and run file existence"
-                }
+                    "resolution": "Verify archive path and run file existence",
+                },
             )
 
         elif isinstance(exc, PermissionError):
@@ -317,8 +306,8 @@ class QueryRunsCapability(BaseCapability):
                 user_message=f"Permission denied accessing archive: {str(exc)}",
                 metadata={
                     "technical_details": str(exc),
-                    "resolution": "Check file permissions for archive directory"
-                }
+                    "resolution": "Check file permissions for archive directory",
+                },
             )
 
         elif isinstance(exc, QueryRunsError):
@@ -326,7 +315,7 @@ class QueryRunsCapability(BaseCapability):
             return ErrorClassification(
                 severity=ErrorSeverity.RETRIABLE,
                 user_message=f"Query error: {str(exc)}",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
 
         else:
@@ -334,7 +323,7 @@ class QueryRunsCapability(BaseCapability):
             return ErrorClassification(
                 severity=ErrorSeverity.RETRIABLE,
                 user_message=f"Unexpected error querying runs: {str(exc)}",
-                metadata={"technical_details": str(exc)}
+                metadata={"technical_details": str(exc)},
             )
 
     def _create_orchestrator_guide(self) -> Optional[OrchestratorGuide]:
@@ -344,34 +333,34 @@ class QueryRunsCapability(BaseCapability):
         Provides detailed examples of simple, moderate, and complex query scenarios.
         """
 
-        # Example 1: Simple - most recent run
+        # Example 1: Two-step pattern - most recent run
         most_recent_example = OrchestratorExample(
             step=PlannedStep(
                 context_key="most_recent_run",
                 capability="query_runs",
-                task_objective="Get the most recent Badger optimization run",
-                expected_output=registry.context_types.BADGER_RUN,
+                task_objective="Load the most recent Badger optimization run",
+                expected_output=registry.context_types.BADGER_RUNS,
                 success_criteria="Most recent run metadata loaded",
-                inputs=[],
-                parameters={"num_runs": 1}  # Use parameters field with simple int value
+                inputs=[{"RUN_QUERY_FILTERS": "recent_run_filters"}],  # From extract_run_filters
+                parameters={},
             ),
-            scenario_description="User asks about the most recent run",
-            notes="Use LLM to parse 'most recent' → num_runs=1 in parameters"
+            scenario_description="User asks about the most recent run - requires extract_run_filters first",
+            notes="TWO-STEP PATTERN: Step 1 (extract_run_filters) creates RUN_QUERY_FILTERS context with num_runs=1, sort_order=newest_first. Step 2 (query_runs) creates BADGER_RUNS context with single run.",
         )
 
-        # Example 2: Simple list - last N runs
-        last_n_example = OrchestratorExample(
+        # Example 2: Two-step with sorting - oldest run
+        oldest_run_example = OrchestratorExample(
             step=PlannedStep(
-                context_key="recent_runs_list",
+                context_key="oldest_run",
                 capability="query_runs",
-                task_objective="Get the last 5 Badger optimization runs",
-                expected_output=registry.context_types.BADGER_RUN,
-                success_criteria="Last 5 runs metadata loaded",
-                inputs=[],
-                parameters={"num_runs": 5}
+                task_objective="Load the oldest Badger optimization run on lcls_ii",
+                expected_output=registry.context_types.BADGER_RUNS,
+                success_criteria="Oldest run metadata loaded",
+                inputs=[{"RUN_QUERY_FILTERS": "oldest_run_filters"}],  # From extract_run_filters
+                parameters={},
             ),
-            scenario_description="User wants to see multiple recent runs",
-            notes="Creates multiple BADGER_RUN contexts (run_0, run_1, ..., run_4)"
+            scenario_description="User asks for the oldest run - requires extract_run_filters with sort_order=oldest_first",
+            notes="TWO-STEP PATTERN: Step 1 (extract_run_filters) creates RUN_QUERY_FILTERS with num_runs=1, badger_environment=lcls_ii, sort_order=oldest_first. Step 2 (query_runs) creates BADGER_RUNS context.",
         )
 
         # Example 3: Beamline-specific query
@@ -379,199 +368,94 @@ class QueryRunsCapability(BaseCapability):
             step=PlannedStep(
                 context_key="cu_hxr_recent_runs",
                 capability="query_runs",
-                task_objective="Get recent runs from the cu_hxr beamline",
-                expected_output=registry.context_types.BADGER_RUN,
+                task_objective="Load recent runs from the cu_hxr beamline",
+                expected_output=registry.context_types.BADGER_RUNS,
                 success_criteria="Recent cu_hxr runs loaded",
-                inputs=[],
-                parameters={"beamline": "cu_hxr", "num_runs": 10}
+                inputs=[{"RUN_QUERY_FILTERS": "cu_hxr_filters"}],
+                parameters={},
             ),
-            scenario_description="User wants runs from specific beamline",
-            notes="Beamline filter limits search to specific subdirectory in archive (e.g., 'cu_hxr', 'lcls_ii')"
+            scenario_description="User wants recent runs from specific beamline",
+            notes="TWO-STEP PATTERN: extract_run_filters parses beamline and creates filter context. query_runs creates BADGER_RUNS container with multiple runs.",
         )
 
-        # Example 4: Algorithm-specific query
-        algorithm_example = OrchestratorExample(
-            step=PlannedStep(
-                context_key="expected_improvement_runs",
-                capability="query_runs",
-                task_objective="Get runs that used the expected_improvement algorithm",
-                expected_output=registry.context_types.BADGER_RUN,
-                success_criteria="Runs using expected_improvement algorithm loaded",
-                inputs=[],
-                parameters={"algorithm": "expected_improvement", "num_runs": 5}
-            ),
-            scenario_description="User wants runs that used a specific optimization algorithm",
-            notes="Algorithm filter requires exact match (e.g., 'expected_improvement', 'neldermead', 'mobo', 'rcds')"
-        )
-
-        # Example 5: Badger environment-specific query
-        environment_example = OrchestratorExample(
-            step=PlannedStep(
-                context_key="lcls_env_runs",
-                capability="query_runs",
-                task_objective="Get runs from the LCLS Badger environment",
-                expected_output=registry.context_types.BADGER_RUN,
-                success_criteria="Runs from LCLS environment loaded",
-                inputs=[],
-                parameters={"badger_environment": "lcls", "num_runs": 5}
-            ),
-            scenario_description="User wants runs from a specific Badger environment (not beamline)",
-            notes="Badger environment is the software environment used (e.g., 'lcls', 'sphere'), different from beamline"
-        )
-
-        # Example 6: Objective-specific query
-        objective_example = OrchestratorExample(
-            step=PlannedStep(
-                context_key="pulse_intensity_runs",
-                capability="query_runs",
-                task_objective="Get runs that optimized pulse_intensity_p80 objective",
-                expected_output=registry.context_types.BADGER_RUN,
-                success_criteria="Runs with pulse_intensity_p80 objective loaded",
-                inputs=[],
-                parameters={"objective": "pulse_intensity_p80", "num_runs": 5}
-            ),
-            scenario_description="User wants runs that optimized a specific objective function",
-            notes="Objective filter requires exact objective name from VOCS"
-        )
-
-        # Example 7: Combined filters
-        combined_example = OrchestratorExample(
-            step=PlannedStep(
-                context_key="cu_hxr_neldermead_runs",
-                capability="query_runs",
-                task_objective="Get neldermead runs from cu_hxr beamline",
-                expected_output=registry.context_types.BADGER_RUN,
-                success_criteria="Neldermead runs from cu_hxr loaded",
-                inputs=[],
-                parameters={"beamline": "cu_hxr", "algorithm": "neldermead", "num_runs": 3}
-            ),
-            scenario_description="User wants runs with multiple specific criteria",
-            notes="Multiple filters are AND-ed together (all conditions must match)"
-        )
-
-        # Example 8: Multi-step - Query then respond with info extraction
-        # This shows how to extract information from run contexts
+        # Example 4: Multi-step with information extraction
         info_extraction_example = OrchestratorExample(
-            # This would be step 2 in a multi-step plan
-            # Step 1 would be query_runs to load the runs into BADGER_RUN contexts
-            # Step 2 is respond to extract specific info from those contexts
             step=PlannedStep(
                 context_key="algorithm_summary",
                 capability="respond",
                 task_objective="Tell user which algorithms were used in the loaded runs",
                 expected_output="user_response",
                 success_criteria="User receives information about algorithms from run contexts",
-                inputs=[{"BADGER_RUN": "lcls_ii_runs"}],  # References runs from previous step
-                parameters={}
+                inputs=[{"BADGER_RUNS": "recent_runs"}],  # References BADGER_RUNS container from query_runs step
+                parameters={},
             ),
-            scenario_description="User wants to know specific information (like algorithms) from runs - requires 2 steps: query_runs then respond",
-            notes="IMPORTANT: When user asks for information FROM runs (algorithms, objectives, results), use 2-step plan:\n"
-                  "1. query_runs to load runs into BADGER_RUN contexts\n"
-                  "2. respond with inputs=[BADGER_RUN contexts] to extract and present the information\n"
-                  "The respond capability can read all fields from BADGER_RUN contexts: algorithm, variables, objectives, etc."
+            scenario_description="Extract information from loaded runs",
+            notes="MULTI-STEP PATTERN: Step 1: extract_run_filters → Step 2: query_runs (creates BADGER_RUNS) → Step 3: respond to extract info from BADGER_RUNS.runs list.",
         )
 
         return OrchestratorGuide(
-            instructions=textwrap.dedent(f"""
+            instructions=textwrap.dedent(
+                f"""
+                **CRITICAL: MANDATORY TWO-STEP PATTERN**
+                query_runs REQUIRES RUN_QUERY_FILTERS context from extract_run_filters capability.
+                ALWAYS plan extract_run_filters BEFORE query_runs - there are NO exceptions!
+
                 **When to plan "query_runs" steps:**
-                - User asks about recent runs ("most recent run", "last 5 runs")
+                - User asks about recent runs ("most recent run", "last 5 runs", "oldest run")
                 - User needs run information for analysis or comparison
-                - User asks about runs from a specific beamline (cu_hxr, sc_sxr, sc_hxr, cu_sxr, sc_bsyd, sc_diag0, dev)
-                - User asks about runs using a specific algorithm (expected_improvement, neldermead, etc.)
-                - User asks about runs from a Badger environment (lcls, lcls_ii, sphere, etc.)
-                - User asks about runs that optimized a specific objective
+                - User asks about runs from a specific beamline or environment
+                - User asks about runs using a specific algorithm or optimizing an objective
 
-                **CRITICAL: Beamline vs Badger Environment Distinction:**
-                - Beamlines (7 physical directories): cu_hxr, cu_sxr, sc_bsyd, sc_diag0, sc_sxr, sc_hxr, dev
-                - Badger Environments (software): lcls, lcls_ii, sphere, etc.
-                - 'lcls_ii' is a Badger ENVIRONMENT, NOT a beamline!
-                - Use extract_run_filters capability to disambiguate complex queries
+                **Required Pattern:**
+                Step 1: extract_run_filters → creates RUN_QUERY_FILTERS context
+                Step 2: query_runs → uses RUN_QUERY_FILTERS context → creates BADGER_RUNS context
 
-                **IMPORTANT: Two-step pattern for information extraction:**
-                When user asks for INFORMATION FROM runs (not just loading runs), use a 2-step plan:
+                **Example: "Show me the most recent run"**
+                Step 1: extract_run_filters with task_objective="Extract filters for: most recent run"
+                        → Creates RUN_QUERY_FILTERS context with num_runs=1, sort_order=newest_first
+                Step 2: query_runs with inputs=[{{"RUN_QUERY_FILTERS": "filters_from_step_1"}}]
+                        → Creates BADGER_RUNS context containing 1 run in .runs list
 
-                Example: "Tell me which algorithm was used for the most recent 3 runs on lcls_ii"
-                Step 1: query_runs with parameters={{"beamline": "lcls_ii", "num_runs": 3}}
-                        → Creates BADGER_RUN contexts (run_0, run_1, run_2)
-                Step 2: respond with inputs=[{{"BADGER_RUN": "run_0"}}, {{"BADGER_RUN": "run_1"}}, {{"BADGER_RUN": "run_2"}}]
-                        → Respond capability reads algorithm field from each context and tells user
+                **Example: "Show me the oldest run on lcls_ii"**
+                Step 1: extract_run_filters with task_objective="Extract filters for: oldest run on lcls_ii"
+                        → Creates RUN_QUERY_FILTERS with num_runs=1, badger_environment=lcls_ii, sort_order=oldest_first
+                Step 2: query_runs with inputs=[{{"RUN_QUERY_FILTERS": "filters_from_step_1"}}]
+                        → Creates BADGER_RUNS context with the oldest lcls_ii run
 
-                DO NOT hallucinate capabilities like "extract_algorithms" or "analyze_runs"!
-                Use query_runs to load, then respond to present information from the contexts.
+                **Sorting Support:**
+                - "recent", "last", "latest", "newest" → sort_order=newest_first (default)
+                - "oldest", "first", "earliest" → sort_order=oldest_first
+                - extract_run_filters automatically detects sort order from query
 
-                **CRITICAL: Use `parameters` field (NOT filter)!**
-                Parse natural language into simple parameters and put them in step["parameters"]:
-
-                User query: "Show me the most recent run"
-                → step["parameters"] = {{"num_runs": 1}}
-
-                User query: "Show me last 5 runs"
-                → step["parameters"] = {{"num_runs": 5}}
-
-                User query: "Show me runs from cu_hxr beamline"
-                → step["parameters"] = {{"beamline": "cu_hxr", "num_runs": 10}}
-
-                User query: "Show me runs that used expected_improvement algorithm"
-                → step["parameters"] = {{"algorithm": "expected_improvement", "num_runs": 5}}
-
-                User query: "Show me runs from lcls environment"
-                → step["parameters"] = {{"badger_environment": "lcls", "num_runs": 5}}
-
-                User query: "Show me neldermead runs from cu_hxr"
-                → step["parameters"] = {{"beamline": "cu_hxr", "algorithm": "neldermead", "num_runs": 3}}
-
-                **Available Parameters (all optional):**
-                - num_runs: int (number of runs to return, default=1 if not specified)
-                - beamline: str (ONLY these 7 beamlines: "cu_hxr", "cu_sxr", "sc_bsyd", "sc_diag0", "sc_sxr", "sc_hxr", "dev")
-                - algorithm: str (optimization algorithm, e.g., "expected_improvement", "neldermead", "mobo", "rcds")
-                - badger_environment: str (Badger software environment, e.g., "lcls", "lcls_ii", "sphere")
-                - objective: str (objective function name from VOCS, e.g., "pulse_intensity_p80")
-
-                **IMPORTANT:**
-                - Parameters field only accepts str/int/float values, NOT dictionaries!
-                - Filters requiring content (algorithm, badger_environment, objective) are more expensive
-                - Algorithm/environment/objective names require EXACT match
-                - Multiple filters are AND-ed together (all must match)
-
-                **Output: {registry.context_types.BADGER_RUN}**
-                - Contains run metadata: name, algorithm, variables, objectives, evaluations
-                - Multiple contexts created (one per run): run_0, run_1, run_2, ...
+                **Output: {registry.context_types.BADGER_RUNS}**
+                - Container context holding list of BadgerRunContext objects in .runs field
+                - Access individual runs via .runs[index] (zero-indexed)
+                - Use .run_count to get total number of runs
+                - Each run has full metadata: name, algorithm, variables, objectives, evaluations
                 - Available for display or further analysis in subsequent steps
 
                 **Empty Results:**
                 - If no runs match filters, returns empty (not an error)
                 - Respond capability will inform user that no runs were found
 
-                **Time Range Filtering (ONLY when user explicitly mentions dates/times):**
-                - TIME_RANGE input is OPTIONAL and should ONLY be used when user explicitly mentions:
-                  * Specific dates: "runs from October 15th"
-                  * Date ranges: "runs between Oct 10 and Oct 15"
-                  * Relative dates: "runs from last week", "runs from past month"
-                - DO NOT use time_range_parsing for:
-                  * "recent runs" - use num_runs instead (e.g., num_runs=10)
-                  * "last 5 runs" - use num_runs=5
-                  * "most recent run" - use num_runs=1
-                - The num_runs parameter already sorts by date (newest first), so time filtering is usually unnecessary
-                - Example WITHOUT time range: "last 3 runs" → parameters={{"num_runs": 3}} (no time_range_parsing needed)
-                - Example WITH time range: "runs from last week" → Step 1: time_range_parsing, Step 2: query_runs with TIME_RANGE input
+                **Time Range Filtering (optional):**
+                - TIME_RANGE input is OPTIONAL - only use when user explicitly mentions dates/times
+                - For "recent runs" or "last N runs", use extract_run_filters (NOT time_range_parsing)
+                - extract_run_filters handles "last N runs" via num_runs parameter
 
                 **Dependencies and sequencing:**
-                - This is typically the first step in run analysis workflows
+                - ALWAYS plan extract_run_filters before query_runs
                 - Results can feed into analysis, comparison, or routine composition steps
-                - Optional inputs: TIME_RANGE (only when user mentions specific dates/times), RUN_QUERY_FILTERS (from extract_run_filters)
-                - Can work standalone with just parameters (no inputs needed)
-                """).strip(),
+                - Optional TIME_RANGE input (only when user mentions specific dates/times)
+                """
+            ).strip(),
             examples=[
                 most_recent_example,
-                last_n_example,
+                oldest_run_example,
                 beamline_example,
-                algorithm_example,
-                environment_example,
-                objective_example,
-                combined_example,
-                info_extraction_example
+                info_extraction_example,
             ],
-            priority=5
+            priority=5,
         )
 
     def _create_classifier_guide(self) -> Optional[TaskClassifierGuide]:
@@ -584,63 +468,63 @@ class QueryRunsCapability(BaseCapability):
                 ClassifierExample(
                     query="Tell me about the most recent run",
                     result=True,
-                    reason="User wants information about recent optimization run."
+                    reason="User wants information about recent optimization run.",
                 ),
                 ClassifierExample(
                     query="Show me the last 5 runs",
                     result=True,
-                    reason="Request for multiple recent runs."
+                    reason="Request for multiple recent runs.",
                 ),
                 ClassifierExample(
                     query="What runs happened last week?",
                     result=True,
-                    reason="Time-based run query."
+                    reason="Time-based run query.",
                 ),
                 ClassifierExample(
                     query="Show me runs from cu_hxr beamline",
                     result=True,
-                    reason="Beamline-specific run query."
+                    reason="Beamline-specific run query.",
                 ),
                 ClassifierExample(
                     query="Show me runs from lcls_ii",
                     result=True,
-                    reason="Badger environment-specific run query (lcls_ii is a Badger environment)."
+                    reason="Badger environment-specific run query (lcls_ii is a Badger environment).",
                 ),
                 ClassifierExample(
                     query="Show me runs that used expected_improvement",
                     result=True,
-                    reason="Algorithm-specific run query."
+                    reason="Algorithm-specific run query.",
                 ),
                 ClassifierExample(
                     query="Show me neldermead runs",
                     result=True,
-                    reason="Algorithm-specific run query."
+                    reason="Algorithm-specific run query.",
                 ),
                 ClassifierExample(
                     query="Show me runs from the lcls environment",
                     result=True,
-                    reason="Badger environment-specific run query."
+                    reason="Badger environment-specific run query.",
                 ),
                 ClassifierExample(
                     query="Show me runs that optimized pulse intensity",
                     result=True,
-                    reason="Objective-specific run query."
+                    reason="Objective-specific run query.",
                 ),
                 ClassifierExample(
                     query="What is the weather today?",
                     result=False,
-                    reason="Not related to Badger optimization runs."
+                    reason="Not related to Badger optimization runs.",
                 ),
                 ClassifierExample(
                     query="Compose a routine to tune FEL intensity",
                     result=False,
-                    reason="This is routine composition, not run querying (different capability)."
+                    reason="This is routine composition, not run querying (different capability).",
                 ),
                 ClassifierExample(
                     query="Which algorithm has been used most often?",
                     result=False,
-                    reason="This requires run analysis/statistics, not just querying (different capability)."
+                    reason="This requires run analysis/statistics, not just querying (different capability).",
                 ),
             ],
-            actions_if_true=ClassifierActions()
+            actions_if_true=ClassifierActions(),
         )

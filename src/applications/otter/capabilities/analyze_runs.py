@@ -29,7 +29,7 @@ from configs.streaming import get_streamer
 from configs.config import get_config_value
 
 # Application imports
-from applications.otter.context_classes import BadgerRunContext
+from applications.otter.context_classes import BadgerRunContext, BadgerRunsContext
 
 logger = get_logger("otter", "analyze_runs")
 registry = get_registry()
@@ -58,7 +58,7 @@ class AnalyzeRunsCapability(BaseCapability):
     """
     Analyze and compare multiple Badger optimization runs.
 
-    This capability takes multiple BADGER_RUN contexts as input and performs:
+    This capability takes a BADGER_RUNS context (container) as input and performs:
     - Statistical analysis (mean, median, variance of success metrics)
     - Algorithm performance comparison
     - Temporal trend detection
@@ -69,9 +69,9 @@ class AnalyzeRunsCapability(BaseCapability):
     """
 
     name = "analyze_runs"
-    description = "Analyze and compare multiple Badger optimization runs"
+    description = "Analyze and compare multiple Badger optimization runs from BADGER_RUNS container"
     provides = ["RUN_ANALYSIS"]
-    requires = ["BADGER_RUN"]
+    requires = ["BADGER_RUNS"]
 
     @staticmethod
     async def execute(state: AgentState, **kwargs) -> Dict[str, Any]:
@@ -81,28 +81,25 @@ class AnalyzeRunsCapability(BaseCapability):
         streamer = get_streamer("otter", "analyze_runs", state)
 
         try:
-            # Get context manager to retrieve run contexts
+            # Get context manager to retrieve BADGER_RUNS container
             context_manager = ContextManager(state)
 
-            # Extract BADGER_RUN contexts from inputs
-            step_inputs = step.get("inputs", [])
-            if not step_inputs:
-                raise InsufficientDataError("No run contexts provided for analysis")
+            # Extract BADGER_RUNS context from inputs (hard requirement)
+            try:
+                contexts = context_manager.extract_from_step(
+                    step, state,
+                    constraints=["BADGER_RUNS"],
+                    constraint_mode="hard"
+                )
+                runs_container = contexts[registry.context_types.BADGER_RUNS]
+            except ValueError as e:
+                raise InsufficientDataError(f"Missing required BADGER_RUNS context: {e}") from e
 
-            # Collect all BADGER_RUN contexts
-            run_contexts: List[BadgerRunContext] = []
-            for input_item in step_inputs:
-                if "BADGER_RUN" in input_item:
-                    run_key = input_item["BADGER_RUN"]
-                    run_context = context_manager.get_context(
-                        registry.context_types.BADGER_RUN,
-                        run_key
-                    )
-                    if run_context:
-                        run_contexts.append(run_context)
+            # Extract run contexts from container
+            run_contexts: List[BadgerRunContext] = runs_container.runs
 
             if not run_contexts:
-                raise InsufficientDataError("No valid BADGER_RUN contexts found in inputs")
+                raise InsufficientDataError("BADGER_RUNS container is empty - no runs to analyze")
 
             streamer.status(f"Analyzing {len(run_contexts)} runs...")
 
@@ -365,21 +362,15 @@ class AnalyzeRunsCapability(BaseCapability):
             step=PlannedStep(
                 context_key="recent_runs_analysis",
                 capability="analyze_runs",
-                task_objective="Analyze the most recent 5 runs to identify patterns",
-                expected_output="analysis_summary",
+                task_objective="Analyze the most recent runs to identify patterns",
+                expected_output=registry.context_types.RUN_ANALYSIS,
                 success_criteria="Statistical analysis of runs completed",
-                inputs=[
-                    {"BADGER_RUN": "run_0"},
-                    {"BADGER_RUN": "run_1"},
-                    {"BADGER_RUN": "run_2"},
-                    {"BADGER_RUN": "run_3"},
-                    {"BADGER_RUN": "run_4"}
-                ],
+                inputs=[{"BADGER_RUNS": "recent_runs"}],  # Single container from query_runs
                 parameters={}
             ),
             scenario_description="User wants to understand patterns in recent runs",
-            notes="Provide all BADGER_RUN contexts from previous query_runs step as inputs. "
-                  "Analysis will compare algorithms, objectives, and success rates."
+            notes="Provide BADGER_RUNS container from previous query_runs step. "
+                  "Analysis will compare algorithms, objectives, and success rates across all runs in container."
         )
 
         # Example 2: Algorithm comparison workflow (2-step)
@@ -430,22 +421,21 @@ class AnalyzeRunsCapability(BaseCapability):
                 **CRITICAL: This capability REQUIRES input from query_runs!**
                 analyze_runs cannot query runs itself. It only processes BADGER_RUN contexts.
 
-                **Typical workflow (2 steps):**
-                Step 1: query_runs - Load runs from archive (creates contexts: run_0, run_1, run_2, ...)
-                Step 2: analyze_runs - Analyze those contexts (inputs=[{{"BADGER_RUN": "run_0"}}, {{"BADGER_RUN": "run_1"}}, ...])
+                **Typical workflow (3 steps):**
+                Step 1: extract_run_filters - Parse query into RUN_QUERY_FILTERS
+                Step 2: query_runs - Load runs from archive (creates BADGER_RUNS container)
+                Step 3: analyze_runs - Analyze runs from container (inputs=[{{"BADGER_RUNS": "context_key"}}])
 
                 **CRITICAL: Input Requirements:**
-                - Requires at least ONE BADGER_RUN context in inputs array
-                - Can process any number of BADGER_RUN contexts (1 to hundreds)
-                - Each input should be: {{"BADGER_RUN": "context_key"}}
-                - query_runs creates contexts with keys: run_0, run_1, run_2, run_3, ... (sequential numbering)
-                - You MUST include ALL run contexts from query_runs in the inputs array!
+                - Requires BADGER_RUNS context as input (container holding all runs)
+                - The BADGER_RUNS container has a .runs field with list of BadgerRunContext objects
+                - Simply pass the BADGER_RUNS context - no need to list individual runs!
+                - Input format: inputs=[{{"BADGER_RUNS": "context_key_from_query_runs"}}]
 
-                **How to construct inputs array:**
-                - If query_runs loaded 3 runs → inputs=[{{"BADGER_RUN": "run_0"}}, {{"BADGER_RUN": "run_1"}}, {{"BADGER_RUN": "run_2"}}]
-                - If query_runs loaded 5 runs → inputs=[{{"BADGER_RUN": "run_0"}}, {{"BADGER_RUN": "run_1"}}, {{"BADGER_RUN": "run_2"}}, {{"BADGER_RUN": "run_3"}}, {{"BADGER_RUN": "run_4"}}]
-                - If query_runs loaded 10 runs → inputs=[{{"BADGER_RUN": "run_0"}}, {{"BADGER_RUN": "run_1"}}, ..., {{"BADGER_RUN": "run_9"}}]
-                - Pattern: run_0 through run_N-1 where N is the number of runs loaded by query_runs
+                **How to construct inputs:**
+                - If query_runs created context "recent_runs" → inputs=[{{"BADGER_RUNS": "recent_runs"}}]
+                - If query_runs created context "cu_hxr_runs" → inputs=[{{"BADGER_RUNS": "cu_hxr_runs"}}]
+                - The container automatically provides ALL runs to analyze_runs
 
                 **Analysis Provided:**
                 - Overview statistics (total runs, time range, evaluations)
@@ -463,25 +453,28 @@ class AnalyzeRunsCapability(BaseCapability):
                 **Example User Query → Plan:**
 
                 "Compare algorithms used in the last 10 runs"
-                → Step 1: query_runs with parameters={{"num_runs": 10}}
-                   (creates: run_0, run_1, run_2, ..., run_9)
-                → Step 2: analyze_runs with inputs=[{{"BADGER_RUN": "run_0"}}, {{"BADGER_RUN": "run_1"}}, ..., {{"BADGER_RUN": "run_9"}}]
-                → Step 3: respond to present analysis results
+                → Step 1: extract_run_filters for "last 10 runs"
+                   (creates RUN_QUERY_FILTERS with num_runs=10)
+                → Step 2: query_runs with inputs=[{{"RUN_QUERY_FILTERS": "filters"}}]
+                   (creates BADGER_RUNS container "recent_runs" with 10 runs)
+                → Step 3: analyze_runs with inputs=[{{"BADGER_RUNS": "recent_runs"}}]
+                → Step 4: respond to present analysis results
 
                 "Analyze runs and suggest a routine"
-                → Step 1: query_runs with parameters={{"num_runs": 10}}
-                   (creates: run_0, run_1, ..., run_9)
-                → Step 2: analyze_runs with inputs=[{{"BADGER_RUN": "run_0"}}, ..., {{"BADGER_RUN": "run_9"}}]
+                → Step 1: extract_run_filters
+                → Step 2: query_runs
+                   (creates BADGER_RUNS container)
+                → Step 3: analyze_runs with inputs=[{{"BADGER_RUNS": "runs"}}]
                    (creates RUN_ANALYSIS context)
-                → Step 3: propose_routines with inputs=[{{"RUN_ANALYSIS": "run_analysis"}}]
-                → Step 4: respond to present analysis + proposals
+                → Step 4: propose_routines with inputs=[{{"RUN_ANALYSIS": "run_analysis"}}]
+                → Step 5: respond to present analysis + proposals
 
                 "Analyze the last 3 runs from lcls_ii environment"
-                → Step 1: extract_run_filters
+                → Step 1: extract_run_filters for "last 3 runs from lcls_ii"
                    (creates RUN_QUERY_FILTERS)
                 → Step 2: query_runs with inputs=[{{"RUN_QUERY_FILTERS": "filters"}}]
-                   (creates: run_0, run_1, run_2)
-                → Step 3: analyze_runs with inputs=[{{"BADGER_RUN": "run_0"}}, {{"BADGER_RUN": "run_1"}}, {{"BADGER_RUN": "run_2"}}]
+                   (creates BADGER_RUNS container with 3 runs)
+                → Step 3: analyze_runs with inputs=[{{"BADGER_RUNS": "lcls_ii_runs"}}]
                 → Step 4: respond to present analysis results
 
                 **IMPORTANT:**

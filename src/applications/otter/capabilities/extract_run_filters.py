@@ -65,6 +65,7 @@ class ExtractedFilters(BaseModel):
     algorithm: Optional[str] = None
     badger_environment: Optional[str] = None
     objective: Optional[str] = None
+    sort_order: str = "newest_first"  # Default to newest_first
 
 
 async def extract_filters_from_query(user_query: str) -> ExtractedFilters:
@@ -86,6 +87,7 @@ async def extract_filters_from_query(user_query: str) -> ExtractedFilters:
         - badger_environment: str (Badger software environment: 'lcls', 'lcls_ii', 'sphere', etc.)
         - algorithm: str (optimization algorithm: 'expected_improvement', 'neldermead', 'mobo', 'rcds', etc.)
         - objective: str (objective function name: 'pulse_intensity_p80', etc.)
+        - sort_order: str (ONLY 'newest_first' or 'oldest_first' - default to 'newest_first')
 
         CRITICAL DISAMBIGUATION RULES:
         1. 'lcls_ii' is a BADGER_ENVIRONMENT (software environment), NOT a beamline!
@@ -94,35 +96,46 @@ async def extract_filters_from_query(user_query: str) -> ExtractedFilters:
         4. When user says "environment" without specifying which field, they likely mean badger_environment
         5. When user says "beamline" they mean the physical beamline directory
         6. Default to num_runs=10 if user says "recent runs" or "last runs" without specifying a number
+        7. "recent", "last", "latest", "newest" → sort_order='newest_first' (default)
+        8. "oldest", "first", "earliest" → sort_order='oldest_first'
 
         Examples:
 
         Query: "last 10 runs from cu_hxr beamline"
-        Response: {"num_runs": 10, "beamline": "cu_hxr"}
+        Response: {"num_runs": 10, "beamline": "cu_hxr", "sort_order": "newest_first"}
 
         Query: "recent runs for lcls_ii environment"
-        Response: {"num_runs": 10, "badger_environment": "lcls_ii"}
+        Response: {"num_runs": 10, "badger_environment": "lcls_ii", "sort_order": "newest_first"}
+
+        Query: "show me the oldest run on lcls_ii"
+        Response: {"num_runs": 1, "badger_environment": "lcls_ii", "sort_order": "oldest_first"}
 
         Query: "runs from lcls_ii"
-        Response: {"num_runs": 10, "badger_environment": "lcls_ii"}
+        Response: {"num_runs": 10, "badger_environment": "lcls_ii", "sort_order": "newest_first"}
 
         Query: "5 neldermead runs from sc_sxr"
-        Response: {"num_runs": 5, "algorithm": "neldermead", "beamline": "sc_sxr"}
+        Response: {"num_runs": 5, "algorithm": "neldermead", "beamline": "sc_sxr", "sort_order": "newest_first"}
 
         Query: "cu_hxr runs optimizing pulse_intensity_p80"
-        Response: {"num_runs": 10, "beamline": "cu_hxr", "objective": "pulse_intensity_p80"}
+        Response: {"num_runs": 10, "beamline": "cu_hxr", "objective": "pulse_intensity_p80", "sort_order": "newest_first"}
 
         Query: "last 15 runs that used expected_improvement for lcls environment"
-        Response: {"num_runs": 15, "algorithm": "expected_improvement", "badger_environment": "lcls"}
+        Response: {"num_runs": 15, "algorithm": "expected_improvement", "badger_environment": "lcls", "sort_order": "newest_first"}
 
         Query: "show me dev beamline neldermead runs"
-        Response: {"num_runs": 10, "beamline": "dev", "algorithm": "neldermead"}
+        Response: {"num_runs": 10, "beamline": "dev", "algorithm": "neldermead", "sort_order": "newest_first"}
 
         Query: "recent sc_diag0 runs"
-        Response: {"num_runs": 10, "beamline": "sc_diag0"}
+        Response: {"num_runs": 10, "beamline": "sc_diag0", "sort_order": "newest_first"}
 
         Query: "analyze the last 3 runs"
-        Response: {"num_runs": 3}
+        Response: {"num_runs": 3, "sort_order": "newest_first"}
+
+        Query: "show me the first run ever on cu_hxr"
+        Response: {"num_runs": 1, "beamline": "cu_hxr", "sort_order": "oldest_first"}
+
+        Query: "earliest 5 runs from lcls environment"
+        Response: {"num_runs": 5, "badger_environment": "lcls", "sort_order": "oldest_first"}
 
         Respond ONLY with the JSON object. Leave fields null if not mentioned in the query.
         """)
@@ -208,7 +221,8 @@ class ExtractRunFiltersCapability(BaseCapability):
             beamline=extracted.beamline,
             algorithm=extracted.algorithm,
             badger_environment=extracted.badger_environment,
-            objective=extracted.objective
+            objective=extracted.objective,
+            sort_order=extracted.sort_order
         )
 
         # Log extracted filters
