@@ -75,6 +75,22 @@ BO algorithms (expected_improvement, upper_confidence_bound, MOBO, etc.) explore
             notes="Applies to all conversational user queries with no clear task objective.",
         )
 
+        multi_query_example = OrchestratorExample(
+            step=PlannedStep(
+                context_key="user_response",
+                capability="respond",
+                task_objective="Respond to user showing runs from BOTH cu_hxr and dev beamlines",
+                expected_output="user_response",
+                success_criteria="Complete response showing all requested runs from both beamlines",
+                inputs=[
+                    {registry.context_types.BADGER_RUNS: "cu_hxr_runs"},
+                    {registry.context_types.BADGER_RUNS: "dev_runs"}
+                ],
+            ),
+            scenario_description="User asks for runs from multiple beamlines in one query",
+            notes="CRITICAL: Include ALL BADGER_RUNS contexts created by previous query_runs steps. Do not omit any contexts!",
+        )
+
         return OrchestratorGuide(
             instructions="""
                 Plan "respond" as the final step for responding to user queries.
@@ -82,8 +98,15 @@ BO algorithms (expected_improvement, upper_confidence_bound, MOBO, etc.) explore
                 Use to provide the final response to the user's question with Badger optimization expertise.
                 Always required unless asking clarifying questions.
                 Be concise, professional, and accurate in your responses.
+
+                **CRITICAL for Multi-Part Queries:**
+                When multiple query_runs steps create separate BADGER_RUNS contexts, include ALL of them in the respond step's inputs.
+                The response generator will present all results in a clear, organized manner.
+
+                Example: "runs from cu_hxr and dev" requires:
+                inputs=[{"BADGER_RUNS": "cu_hxr_runs"}, {"BADGER_RUNS": "dev_runs"}]
                 """,
-            examples=[analysis_with_context_example, conversational_example],
+            examples=[analysis_with_context_example, conversational_example, multi_query_example],
             priority=100,  # Should come last in prompt ordering
         )
 
@@ -206,6 +229,33 @@ When presenting Badger optimization runs to users, ALWAYS include these elements
 
 **Analysis:**
 The algorithm found excellent improvement efficiently (peak at eval 23/50). The final value is lower than the best because the algorithm continued exploring after finding the peak - this is expected Bayesian Optimization behavior and indicates healthy exploration-exploitation balance."
+
+**HANDLING MULTIPLE BADGER_RUNS CONTEXTS:**
+
+When responding to queries that loaded multiple BADGER_RUNS containers (e.g., "show runs from cu_hxr and dev"):
+- Clearly separate and label each group of runs using section headers
+- Use descriptive headers like "## Recent runs from cu_hxr:", "## Oldest runs from dev:"
+- Present each container's runs using the same format guidelines above
+- Ensure all contexts are included - don't skip any containers
+- If there are many runs across containers, consider summarizing key differences between groups
+
+Example multi-query response format:
+
+"## Recent 2 runs from cu_hxr:
+
+**Run 1:** lcls-2025-03-04-224007
+[Full run details as shown above...]
+
+**Run 2:** lcls-2025-03-03-145821
+[Full run details as shown above...]
+
+## Oldest 2 runs from dev:
+
+**Run 1:** dev-2024-01-15-093412
+[Full run details as shown above...]
+
+**Run 2:** dev-2024-01-16-102341
+[Full run details as shown above...]"
 """
 
         return base_instructions + bo_guidance

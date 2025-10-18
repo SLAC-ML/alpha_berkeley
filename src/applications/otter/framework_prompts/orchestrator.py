@@ -70,10 +70,24 @@ User: "Analyze runs and suggest routine"
 - lcls, lcls_ii: LCLS facility environments
 - sphere: Simulation/testing environment
 
+**7. Multi-Query Planning** (CRITICAL for compound queries):
+When user asks for multiple distinct data retrievals in one query:
+- Plan separate query_runs steps for each distinct request
+- The FINAL respond step MUST include ALL created contexts in its inputs array
+
+Example: "Show me recent 2 runs on cu_hxr, and oldest 2 runs on dev"
+→ Step 1: extract_run_filters (cu_hxr query) → RUN_QUERY_FILTERS: "cu_hxr_filters"
+→ Step 2: query_runs → BADGER_RUNS: "cu_hxr_runs"
+→ Step 3: extract_run_filters (dev query) → RUN_QUERY_FILTERS: "dev_filters"
+→ Step 4: query_runs → BADGER_RUNS: "dev_runs"
+→ Step 5: respond with inputs=[{"BADGER_RUNS": "cu_hxr_runs"}, {"BADGER_RUNS": "dev_runs"}]
+
+NEVER omit earlier contexts - respond needs ALL results to present complete answer!
+
 When planning optimization analysis workflows:
 1. Always use extract_run_filters before query_runs for ALL run queries
 2. Remember that best values ≠ final values for BO algorithms
-3. query_runs returns a BADGER_RUNS container - pass this to analyze_runs as input
+3. query_runs returns a BADGER_RUNS container - pass ALL containers to respond/analyze_runs if multiple queries were made
 4. Use RUN_ANALYSIS context for subsequent analysis steps (don't re-analyze!)
 5. If the query doesn't contain time range-related specifications, do NOT use time_range_parsing capability.
 """
