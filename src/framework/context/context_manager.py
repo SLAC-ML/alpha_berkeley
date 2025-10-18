@@ -334,17 +334,21 @@ class ContextManager:
         if step is not None:
             # Get specific step contexts and convert to flattened format
             try:
-                step_contexts = self.extract_from_step(step, {})
                 contexts_dict = {}
-                
-                # Convert to flattened format like get_all() returns
+
+                # IMPORTANT: Directly get each context by its specific key to handle multiple contexts of same type
+                # Don't use extract_from_step() here because it loses duplicate types
                 for input_spec in step.get('inputs', []):
                     if isinstance(input_spec, dict):
                         for context_type, key_name in input_spec.items():
-                            if context_type in step_contexts:
+                            # Get the specific context object by its unique key
+                            context_obj = self.get_context(context_type, key_name)
+                            if context_obj:
                                 flattened_key = f"{context_type}.{key_name}"
-                                contexts_dict[flattened_key] = step_contexts[context_type]
-                                
+                                contexts_dict[flattened_key] = context_obj
+                            else:
+                                logger.warning(f"Context {context_type}.{key_name} not found")
+
             except Exception as e:
                 logger.error(f"Error extracting step contexts: {e}")
                 contexts_dict = self.get_all()  # Fallback to all contexts
@@ -467,20 +471,27 @@ class ContextManager:
         constraint_mode: str = "hard"
     ) -> Dict[str, 'CapabilityContext']:
         """Extract all contexts specified in step.inputs with optional type constraints.
-        
+
         This method consolidates the common pattern of extracting context data from
         step inputs and validating against expected types. It replaces repetitive
         validation logic across capabilities.
-        
+
+        **LIMITATION**: If step.inputs contains multiple contexts of the same type
+        (e.g., ``[{"BADGER_RUNS": "run1"}, {"BADGER_RUNS": "run2"}]``), only the LAST
+        one will be returned since the result dict is keyed by context_type only.
+
+        For scenarios requiring multiple contexts of the same type, access them directly
+        using ``self.get_context(context_type, key)`` for each key.
+
         Args:
             step: Execution step with inputs list like ``[{"PV_ADDRESSES": "key1"}, {"TIME_RANGE": "key2"}]``
             state: Current agent state (for error checking)
             constraints: Optional list of required context types (e.g., ``["PV_ADDRESSES", "TIME_RANGE"]``)
             constraint_mode: ``"hard"`` (all constraints required) or ``"soft"`` (at least one constraint required)
-        
+
         Returns:
-            Dict mapping context_type to context object
-            
+            Dict mapping context_type to context object (one per type)
+
         Raises:
             ValueError: If contexts not found or constraints not met (capability converts to specific error)
             
