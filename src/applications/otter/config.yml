@@ -9,6 +9,11 @@ external_services:
     # Archive root directory containing all historical runs
     archive_root: ${OTTER_BADGER_ARCHIVE}
 
+# Pipeline Configuration (for OpenWebUI interface)
+pipeline:
+  name: "Otter"
+  startup_hooks: []
+
 # Model Configuration (for future capabilities)
 models:
   run_analysis:
