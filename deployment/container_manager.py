@@ -231,7 +231,68 @@ def get_templates(config):
             print(f"Warning: Service '{service_name}' not found in configuration")
 
     return templates
-    
+
+def merge_application_volumes(config, service_name):
+    """Merge application-specific volumes into service configuration.
+
+    Scans all applications for deployment.volumes configuration and collects
+    them for injection into the target service. Supports environment variable
+    expansion in source and target paths via Docker Compose.
+
+    This enables applications to declaratively specify external data directories
+    that need to be mounted (e.g., archives, model directories, research data)
+    without modifying framework service templates.
+
+    :param config: Full merged configuration dictionary from ConfigBuilder
+    :type config: dict
+    :param service_name: Name of the service to collect volumes for (e.g., 'pipelines')
+    :type service_name: str
+    :return: List of volume mount specifications with source, target, read_only
+    :rtype: list
+
+    Examples:
+        Basic volume configuration::
+
+            >>> config = {
+            ...     'applications': {
+            ...         'otter': {
+            ...             'deployment': {
+            ...                 'volumes': [
+            ...                     {'source': '${OTTER_ARCHIVE}', 'target': '/archive', 'read_only': True}
+            ...                 ]
+            ...             }
+            ...         }
+            ...     }
+            ... }
+            >>> merge_application_volumes(config, 'pipelines')
+            [{'source': '${OTTER_ARCHIVE}', 'target': '/archive', 'read_only': True}]
+
+    .. note::
+       Environment variables in source/target paths (e.g., ${VAR}) are expanded
+       by Docker Compose at runtime, not by this function.
+
+    .. seealso::
+       :func:`render_template` : Uses merged volumes during template rendering
+    """
+    merged_volumes = []
+
+    # Scan all applications for deployment.volumes configuration
+    applications = config.get('applications', {})
+    for app_name, app_config in applications.items():
+        if not isinstance(app_config, dict):
+            continue
+
+        deployment = app_config.get('deployment', {})
+        volumes = deployment.get('volumes', [])
+
+        if volumes:
+            print(f"Container Manager: Found {len(volumes)} volume mount(s) for application '{app_name}'")
+            for vol in volumes:
+                print(f"  - {vol.get('source')} -> {vol.get('target')} (ro: {vol.get('read_only', False)})")
+            merged_volumes.extend(volumes)
+
+    return merged_volumes
+
 def render_template(template_path, config, out_dir):
     """Render Jinja2 template with configuration context to output directory.
     
@@ -288,8 +349,17 @@ def render_template(template_path, config, out_dir):
     """
     env = Environment(loader=FileSystemLoader("."))
     template = env.get_template(template_path)
+
+    # Extract service name from template path (e.g., 'pipelines' from .../pipelines/docker-compose.yml.j2)
+    service_name = os.path.basename(os.path.dirname(template_path))
+
+    # Merge application-specific volumes for this service
+    application_volumes = merge_application_volumes(config, service_name)
+
     # Config is already a dict for Jinja2 template rendering
-    config_dict = config
+    config_dict = config.copy()
+    config_dict['application_volumes'] = application_volumes
+
     rendered_content = template.render(config_dict)
     
     # Determine output filename based on template type

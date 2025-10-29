@@ -13,6 +13,12 @@ services:
       # When using multiple -f flags, relative paths are resolved inconsistently
       - {{build_dir}}/services/framework/pipelines:/pipelines
       - {{project_root}}/{{file_paths.agent_data_dir}}:/app/{{file_paths.agent_data_dir}}
+      # Application-specific volumes (e.g., external data directories)
+      {% if application_volumes %}
+      {% for volume in application_volumes %}
+      - {{volume.source}}:{{volume.target}}{% if volume.read_only %}:ro{% endif %}
+      {% endfor %}
+      {% endif %}
     environment:
       # Tell pipelines where to find the scripts within the container
       - PIPELINES_DIR=/pipelines/interfaces/openwebui 
