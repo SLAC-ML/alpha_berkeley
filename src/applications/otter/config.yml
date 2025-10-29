@@ -14,6 +14,14 @@ pipeline:
   name: "Otter"
   startup_hooks: []
 
+# Deployment Configuration (for containerized environments)
+deployment:
+  volumes:
+    # Mount Badger archive directory for run queries
+    - source: ${OTTER_BADGER_ARCHIVE}
+      target: ${OTTER_BADGER_ARCHIVE}  # Use same path in container for compatibility
+      read_only: true                   # Archive is read-only
+
 # Model Configuration (for future capabilities)
 models:
   run_analysis:
